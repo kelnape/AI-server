@@ -87,30 +87,38 @@ const ServerMetrics = () => {
     };
     fetch_(); const i=setInterval(fetch_,3000); return ()=>clearInterval(i);
   }, []);
-  const S = ({icon:Icon, color, val, label}) => (
-    <div className="flex items-center gap-1.5">
+
+  const M = ({icon:Icon, color, val, label}) => (
+    <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg" style={{background:'var(--bg-hover)'}}>
       <Icon size={12} className={online ? color : "theme-text-xs-cls"} />
-      <span>{label}: <span className={online ? "theme-text-cls" : "theme-text-xs-cls"}>{val}</span></span>
+      <span className="font-black" style={{color:'var(--text-muted)'}}>{label}:</span>
+      <span className={`font-black ${online ? color : "theme-text-xs-cls"}`}>{val}</span>
     </div>
   );
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center gap-3 sm:gap-5 text-[10px] font-mono uppercase tracking-widest border-b backdrop-blur-sm z-10 relative theme-border"
-         style={{color:'var(--text-muted)', borderColor:'var(--border)', backgroundColor:'var(--bg-toolbar)'}}>
-      <div className="flex items-center gap-2">
-        <div className={`w-2 h-2 rounded-full ${online?'bg-green-500 animate-pulse':'bg-red-500'}`} />
-        <span className={online?"text-gray-300 font-bold":"text-red-400 font-bold"}>{online?'RPi Node 01':'OFFLINE'}</span>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2 border-b backdrop-blur-sm z-10 relative"
+         style={{borderColor:'var(--border)', backgroundColor:'var(--bg-toolbar)'}}>
+      {/* SERVER badge */}
+      <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg font-black" style={{background:'var(--bg-hover)'}}>
+        <div className={`w-2 h-2 rounded-full ${online?'bg-green-500 animate-pulse':'bg-red-500'}`}/>
+        <span className={`text-[10px] font-black uppercase tracking-widest ${online?'text-green-400':'text-red-400'}`}>
+          {online ? 'Server' : 'Offline'}
+        </span>
       </div>
-      <div className="hidden sm:block w-px h-3 bg-white/10"/>
-      <S icon={Cpu}         color="text-blue-400"   val={metrics.cpu}    label="CPU"/>
-      <S icon={HardDrive}   color="text-purple-400" val={metrics.ram}    label="RAM"/>
-      <S icon={Thermometer} color="text-red-400"    val={metrics.temp}   label="Temp"/>
-      <div className="hidden sm:flex items-center gap-1.5">
-        <Box size={12} className={online?"text-cyan-400":"theme-text-xs-cls"} />
-        <span>Docker: <span className={metrics.docker==="ACTIVE"?"text-cyan-200":"text-red-400"}>{metrics.docker}</span></span>
+      <div className="w-px h-4 hidden sm:block" style={{background:'var(--border)'}}/>
+      <M icon={Cpu}         color="text-blue-400"   val={metrics.cpu}  label="CPU"/>
+      <M icon={HardDrive}   color="text-purple-400" val={metrics.ram}  label="RAM"/>
+      <M icon={Thermometer} color="text-red-400"    val={metrics.temp} label="Temp"/>
+      <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-lg" style={{background:'var(--bg-hover)'}}>
+        <Box size={12} className={online?"text-cyan-400":"theme-text-xs-cls"}/>
+        <span className="font-black text-[10px]" style={{color:'var(--text-muted)'}}>Docker:</span>
+        <span className={`font-black text-[10px] ${metrics.docker==="ACTIVE"?"text-cyan-400":"text-red-400"}`}>{metrics.docker}</span>
       </div>
-      <div className="hidden md:flex items-center gap-1.5">
-        <Activity size={12} className={online?"text-green-400":"theme-text-xs-cls"} />
-        <span>Uptime: <span className={online?"text-green-200":"theme-text-xs-cls"}>{metrics.uptime}</span></span>
+      <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-lg" style={{background:'var(--bg-hover)'}}>
+        <Activity size={12} className={online?"text-green-400":"theme-text-xs-cls"}/>
+        <span className="font-black text-[10px]" style={{color:'var(--text-muted)'}}>Uptime:</span>
+        <span className={`font-black text-[10px] ${online?"text-green-400":"theme-text-xs-cls"}`}>{metrics.uptime}</span>
       </div>
     </div>
   );
@@ -169,10 +177,11 @@ const ModelSelector = ({ activeModel, onSelect }) => {
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all text-[10px] font-black uppercase tracking-widest">
+        className={`flex items-center gap-2 px-3 py-2.5 border rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${color.replace('text-','bg-').replace('400','500/10')} hover:opacity-80 border-current/20`}
+        style={{borderColor: 'var(--border)'}}>
         <Icon size={13} className={color}/>
-        <span className="hidden sm:block text-gray-300">{current?.label || 'Model'}</span>
-        <ChevronDown size={12} className={`theme-text-sm-cls transition-transform ${open?'rotate-180':''}`}/>
+        <span className={`hidden sm:block ${color}`}>{current?.label || 'Model'}</span>
+        <ChevronDown size={12} className={`${color} transition-transform ${open?'rotate-180':''}`}/>
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-2 w-56 theme-toolbar-bg border theme-border-cls rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
@@ -484,14 +493,31 @@ const AGENT_COLORS = {
   SYSTEM:'text-gray-400',
 };
 
+const AGENT_COLORS_HEX = {
+  MANAZER:'#facc15', PLANNER:'#818cf8', VYZKUMNIK:'#22d3ee', EXPERT:'#a78bfa',
+  SYSADMIN:'#fb923c', DESIGNER:'#fb7185', ARCHITEKT:'#60a5fa', AUDITOR:'#f87171',
+  TESTER:'#4ade80', KODER:'#f472b6', REFLEKTOR:'#c084fc', FINALIZER:'#34d399',
+};
+
 const AgentVisualizer = ({ activeAgent }) => (
-  <div className="flex flex-wrap gap-1.5 p-3 theme-card-bg rounded-2xl border theme-border-cls">
-    {AGENTS.map(({id, label, icon: Icon}) => {
+  <div className="flex flex-wrap gap-1.5 p-3 rounded-2xl border" style={{background:'var(--bg-card)', borderColor:'var(--border)'}}>
+    {AGENTS.map(({id, label, icon:Icon}) => {
       const isActive = activeAgent === id;
+      const hex = AGENT_COLORS_HEX[id] || '#64748b';
       return (
-        <div key={id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-500 ${isActive?'bg-blue-500/20 border-blue-500/50 shadow-[0_0_12px_rgba(59,130,246,0.3)] scale-105':'bg-white/5 theme-border-cls opacity-30 grayscale'}`}>
-          <Icon size={12} className={isActive?"text-blue-400 animate-pulse":"text-gray-400"}/>
-          <span className={`text-[9px] font-black uppercase tracking-widest hidden sm:block ${isActive?"text-blue-300":"theme-text-sm-cls"}`}>{label}</span>
+        <div key={id}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all duration-500 ${isActive?'scale-110':''}`}
+          style={{
+            background: isActive ? `${hex}22` : 'var(--bg-hover)',
+            borderColor: isActive ? `${hex}70` : 'var(--border)',
+            boxShadow: isActive ? `0 0 14px ${hex}45` : 'none',
+          }}>
+          <Icon size={12} style={{color: isActive ? hex : 'var(--text-muted)'}}
+            className={isActive?'animate-pulse':''}/>
+          <span className="text-[9px] font-black uppercase tracking-widest hidden sm:block"
+            style={{color: isActive ? hex : 'var(--text-secondary)'}}>
+            {label}
+          </span>
         </div>
       );
     })}
@@ -888,12 +914,6 @@ const GitDrawer = ({ isOpen, onClose }) => {
 // =============================================================================
 // TELEMETRIE DRAWER
 // =============================================================================
-const AGENT_COLORS_HEX = {
-  MANAZER:'#facc15', PLANNER:'#818cf8', VYZKUMNIK:'#22d3ee', EXPERT:'#a78bfa',
-  SYSADMIN:'#fb923c', ARCHITEKT:'#60a5fa', AUDITOR:'#f87171', TESTER:'#4ade80',
-  KODER:'#f472b6', REFLEKTOR:'#c084fc', FINALIZER:'#34d399',
-};
-
 const TelemetryDrawer = ({ isOpen, onClose }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1535,17 +1555,17 @@ export default function App() {
               </span>
             )}
           </button>
-          <button onClick={handleLearn} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all">
+          <button onClick={handleLearn} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 rounded-xl transition-all">
             <Brain size={15} className="text-pink-400"/>
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Naučit se</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-pink-300 hidden sm:block">Učit</span>
           </button>
-          <button onClick={()=>setIsHistoryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all">
-            <History size={15} className="text-gray-400"/>
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Historie</span>
+          <button onClick={()=>setIsHistoryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/20 rounded-xl transition-all">
+            <History size={15} className="text-slate-400"/>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 hidden sm:block">Historie</span>
           </button>
-          <button onClick={()=>setIsLibraryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all">
+          <button onClick={()=>setIsLibraryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-xl transition-all">
             <Library size={15} className="text-blue-400"/>
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Knihovna</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-blue-300 hidden sm:block">Knihovna</span>
           </button>
 
           {/* PŘEPÍNAČ TMAVÝ / SVĚTLÝ */}
