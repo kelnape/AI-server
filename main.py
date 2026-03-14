@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import json
 import asyncio
@@ -83,6 +84,37 @@ async def telegram_notify(message: str):
 CB = "`" * 3
 SESSION_HISTORY = []
 MAX_HISTORY = 10
+
+def _save_session_history():
+    """Uloží SESSION_HISTORY do SQLite."""
+    try:
+        data = json.dumps([
+            {"role": "human" if isinstance(m, HumanMessage) else "ai",
+             "content": m.content if isinstance(m.content, str) else ""}
+            for m in SESSION_HISTORY
+        ])
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS session_state (key TEXT PRIMARY KEY, value TEXT)")
+        cur.execute("INSERT OR REPLACE INTO session_state (key, value) VALUES ('history', ?)", (data,))
+        conn.commit(); conn.close()
+    except Exception: pass
+
+def _load_session_history():
+    """Načte SESSION_HISTORY ze SQLite při startu."""
+    global SESSION_HISTORY
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS session_state (key TEXT PRIMARY KEY, value TEXT)")
+        cur.execute("SELECT value FROM session_state WHERE key='history'")
+        row = cur.fetchone(); conn.close()
+        if not row: return
+        msgs = json.loads(row[0])
+        SESSION_HISTORY = [
+            HumanMessage(content=m["content"]) if m["role"] == "human"
+            else AIMessage(content=m["content"])
+            for m in msgs if m.get("content")
+        ]
+    except Exception: pass
 SYSTEM_ALERTS = []
 
 # --- DOSTUPNÉ MODELY ---
@@ -117,6 +149,37 @@ def init_db():
         quality_reason TEXT DEFAULT NULL,
         feedback INTEGER DEFAULT NULL
     )''')
+    # Migrace - přidej chybějící sloupce do existující tabulky
+    existing_cols = [row[1] for row in c.execute("PRAGMA table_info(task_history)").fetchall()]
+    for col, definition in [
+        ("task_id",       "TEXT"),
+        ("model",         "TEXT"),
+        ("quality_score", "REAL DEFAULT NULL"),
+        ("quality_reason","TEXT DEFAULT NULL"),
+        ("feedback",      "INTEGER DEFAULT NULL"),
+    ]:
+        if col not in existing_cols:
+            try: c.execute(f"ALTER TABLE task_history ADD COLUMN {col} {definition}")
+            except Exception as e: print(f"[MIGRATION] {col}: {e}")
+    # Migrace telemetry tabulky - vsechny sloupce
+    tel_cols = [row[1] for row in c.execute("PRAGMA table_info(telemetry)").fetchall()]
+    for col, definition in [
+        ("task_id",       "TEXT"),
+        ("agent_id",      "TEXT"),
+        ("model",         "TEXT"),
+        ("input_tokens",  "INTEGER DEFAULT 0"),
+        ("output_tokens", "INTEGER DEFAULT 0"),
+        ("cost_usd",      "REAL DEFAULT 0"),
+        ("duration_ms",   "INTEGER DEFAULT 0"),
+        ("date",          "TEXT"),
+    ]:
+        if col not in tel_cols:
+            try:
+                c.execute(f"ALTER TABLE telemetry ADD COLUMN {col} {definition}")
+                print(f"[MIGRATION] telemetry: přidán sloupec {col}")
+            except Exception as e:
+                print(f"[MIGRATION] telemetry {col}: {e}")
+
     c.execute('''CREATE TABLE IF NOT EXISTS agent_prompts (
         agent_id TEXT PRIMARY KEY,
         custom_prompt TEXT,
@@ -128,7 +191,7 @@ def init_db():
         input_tokens INTEGER, output_tokens INTEGER,
         cost_usd REAL, duration_ms INTEGER, date TEXT
     )''')
-    # Fronta úkolů — batch zpracování
+    # Fronta úkolů - batch zpracování
     c.execute('''CREATE TABLE IF NOT EXISTS task_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         message TEXT NOT NULL,
@@ -152,7 +215,7 @@ def init_db():
         comment TEXT DEFAULT NULL,
         date TEXT
     )''')
-    # Noční analýza — logy a doporučení
+    # Noční analýza - logy a doporučení
     c.execute('''CREATE TABLE IF NOT EXISTS night_analysis (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT,
@@ -166,6 +229,7 @@ def init_db():
     conn.commit(); conn.close()
 
 init_db()
+_load_session_history()  # Obnov kontext konverzace po restartu
 
 # --- VLASTNÍ PROMPTY AGENTŮ ---
 def load_agent_prompts() -> dict:
@@ -199,13 +263,13 @@ def team_identity(agent_id: str = "") -> str:
     return BASE_TEAM_IDENTITY
 
 # =============================================================================
-# KONTEXT PROJEKTU — automaticky načtený při každém úkolu
+# KONTEXT PROJEKTU - automaticky načtený při každém úkolu
 # =============================================================================
 
 def build_project_context() -> str:
     """
     Sestaví živý kontext projektu z filesystem + git.
-    Volá se při každém chat requestu — agenti vždy vědí kde jsou.
+    Volá se při každém chat requestu - agenti vždy vědí kde jsou.
     """
     ctx_parts = []
 
@@ -237,13 +301,13 @@ def build_project_context() -> str:
             if entry.startswith('.') or entry in ('node_modules','__pycache__','.venv','dist','chroma_db'):
                 continue
             full = os.path.join(GIT_REPO_PATH, entry)
-            entries.append(f"  {'📁' if os.path.isdir(full) else '📄'} {entry}")
+            entries.append(f"  {' ' if os.path.isdir(full) else '📄'} {entry}")
         if entries:
             ctx_parts.append("Struktura projektu:\n" + "\n".join(entries[:20]))
     except Exception:
         pass
 
-    # 3. Tech stack — requirements.txt
+    # 3. Tech stack - requirements.txt
     try:
         req_path = os.path.join(GIT_REPO_PATH, "requirements.txt")
         if os.path.exists(req_path):
@@ -256,7 +320,7 @@ def build_project_context() -> str:
     except Exception:
         pass
 
-    # 4. Tech stack — package.json (frontend)
+    # 4. Tech stack - package.json (frontend)
     try:
         pkg_path = os.path.join(GIT_REPO_PATH, "frontend", "package.json")
         if os.path.exists(pkg_path):
@@ -283,7 +347,7 @@ def build_project_context() -> str:
 
     return "\n\n--- KONTEXT PROJEKTU (live) ---\n" + "\n".join(ctx_parts) + "\n---\n"
 
-# Cache kontextu — obnovuje se každých 60 sekund
+# Cache kontextu - obnovuje se každých 60 sekund
 _project_ctx_cache: dict = {"ts": 0, "ctx": ""}
 
 def get_project_context() -> str:
@@ -308,8 +372,10 @@ class AgentState(TypedDict):
     current_step: int
     model_id: str
     task_id: str
-    project_specs: dict   # intake formulář — specifika projektu
-    is_web_project: bool  # příznak pro Designer agenta
+    project_specs: dict
+    is_web_project: bool
+    # Sdílená paměť agentů - předávání zkušeností mezi uzly
+    agent_memory: dict  # {"AUDITOR": "zjistil jsem X", "SYSADMIN": "soubor Y upraven"}
 
 # --- SYSTÉMOVÝ MONITOR ---
 async def system_monitor_loop():
@@ -336,7 +402,7 @@ async def system_monitor_loop():
 # --- NÁSTROJE ---
 @tool
 def execute_linux_command(command: str) -> str:
-    """Spustí bash příkaz přímo na Linux serveru (Raspberry Pi)."""
+    """Spustí bash příkaz přímo na Linux serveru."""
     try:
         if command.strip().startswith("sudo ") and SUDO_PASSWORD:
             command = command.replace("sudo ", f"echo '{SUDO_PASSWORD}' | sudo -S ", 1)
@@ -346,8 +412,74 @@ def execute_linux_command(command: str) -> str:
     except Exception as e:
         return f"Chyba: {str(e)}"
 
+@tool
+def read_file(path: str, max_lines: int = 200) -> str:
+    """
+    Přečte obsah souboru ze serveru. Podporuje absolutní i relativní cesty.
+    Relativní cesty jsou vztaženy k adresáři projektu (GIT_REPO_PATH).
+    Parametr max_lines omezí počet vrácených řádků (výchozí 200).
+    """
+    try:
+        full_path = path if os.path.isabs(path) else os.path.join(GIT_REPO_PATH, path)
+        full_path = os.path.realpath(full_path)
+        # Bezpečnostní kontrola - nepovol čtení mimo home
+        if not full_path.startswith("/home/") and not full_path.startswith(GIT_REPO_PATH):
+            return f"❌ Přístup zamítnut: cesta mimo povolené adresáře."
+        if not os.path.exists(full_path):
+            return f"❌ Soubor nenalezen: {full_path}"
+        if os.path.isdir(full_path):
+            files = os.listdir(full_path)
+            return f"  Adresář {full_path}:\n" + "\n".join(files[:100])
+        size = os.path.getsize(full_path)
+        if size > 500_000:
+            return f"❌ Soubor příliš velký ({size//1024}KB). Použij execute_linux_command s head/tail."
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        if len(lines) > max_lines:
+            return (f"📄 {full_path} ({len(lines)} řádků, zobrazuji prvních {max_lines}):\n"
+                    + "".join(lines[:max_lines]) + f"\n... (+{len(lines)-max_lines} dalších řádků)")
+        return f"📄 {full_path} ({len(lines)} řádků):\n" + "".join(lines)
+    except Exception as e:
+        return f"❌ Chyba čtení: {str(e)}"
+
+@tool
+def write_file(path: str, content: str, mode: str = "overwrite") -> str:
+    """
+    Zapíše nebo upraví soubor na serveru.
+    Parametr mode: 'overwrite' (přepíše celý soubor), 'append' (přidá na konec), 'insert_after' (přidá za konkrétní řádek).
+    Relativní cesty jsou vztaženy k adresáři projektu.
+    POZOR: Před zápisem vždy přečti soubor pomocí read_file aby nedošlo ke ztrátě dat.
+    """
+    try:
+        full_path = path if os.path.isabs(path) else os.path.join(GIT_REPO_PATH, path)
+        full_path = os.path.realpath(full_path)
+        # Bezpečnostní kontrola
+        if not full_path.startswith("/home/") and not full_path.startswith(GIT_REPO_PATH):
+            return f"❌ Zápis zamítnut: cesta mimo povolené adresáře."
+        # Chráněné soubory
+        protected = [".env", "system_data.db", "chroma_db"]
+        if any(p in full_path for p in protected):
+            return f"❌ Zápis zamítnut: chráněný soubor."
+        # Vytvoř adresáře pokud neexistují
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        if mode == "append":
+            with open(full_path, "a", encoding="utf-8") as f:
+                f.write(content)
+            return f"✅ Přidáno na konec souboru: {full_path} ({len(content)} znaků)"
+        else:  # overwrite
+            # Záloha originálního souboru
+            if os.path.exists(full_path):
+                backup = full_path + ".bak"
+                import shutil
+                shutil.copy2(full_path, backup)
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            return f"✅ Soubor uložen: {full_path} ({len(content.splitlines())} řádků)"
+    except Exception as e:
+        return f"❌ Chyba zápisu: {str(e)}"
+
 def _git_run(args: list[str], cwd: str = None) -> tuple[str, bool]:
-    """Pomocná funkce pro Git příkazy — vrátí (výstup, úspěch)."""
+    """Pomocná funkce pro Git příkazy - vrátí (výstup, úspěch)."""
     env = os.environ.copy()
     if GIT_TOKEN:
         env["GIT_ASKPASS"] = "echo"
@@ -421,7 +553,7 @@ def git_operation(operation: str, message: str = "", branch: str = "") -> str:
         return f"✅ Stash: {out}" if ok else f"❌ {out}"
 
     else:
-        # Fallback — spusť jako přímý git příkaz
+        # Fallback - spusť jako přímý git příkaz
         out, ok = _git_run(operation.split())
         return out
 
@@ -438,7 +570,13 @@ TOOLS_MAP = {
     "execute_linux_command": execute_linux_command,
     "search_internet": search_internet,
     "git_operation": git_operation,
+    "read_file": read_file,
+    "write_file": write_file,
 }
+
+ALL_TOOLS = [execute_linux_command, search_internet, git_operation, read_file, write_file]
+SYSADMIN_TOOLS = [execute_linux_command, git_operation, read_file, write_file]
+RESEARCH_TOOLS = [search_internet]
 
 def execute_tool_calls(ai_message: AIMessage) -> list[ToolMessage]:
     results = []
@@ -470,9 +608,9 @@ class ProcessedFiles:
 def process_files(files: list) -> ProcessedFiles:
     """
     Zpracuje přiložené soubory:
-    - Obrázky → base64 bloky pro OpenAI Vision
-    - PDF     → extrakce textu přes pypdf
-    - Text/kód → přímé přečtení obsahu
+    - Obrázky -> base64 bloky pro OpenAI Vision
+    - PDF     -> extrakce textu přes pypdf
+    - Text/kód -> přímé přečtení obsahu
     """
     result = ProcessedFiles()
     if not files:
@@ -490,7 +628,7 @@ def process_files(files: list) -> ProcessedFiles:
         if "," in raw_data:
             raw_data = raw_data.split(",", 1)[1]
 
-        # --- OBRÁZKY → Vision ---
+        # --- OBRÁZKY -> Vision ---
         if mime.startswith("image/"):
             result.has_images = True
             result.image_blocks.append({
@@ -501,7 +639,7 @@ def process_files(files: list) -> ProcessedFiles:
                 }
             })
 
-        # --- PDF → extrakce textu ---
+        # --- PDF -> extrakce textu ---
         elif mime == "application/pdf" or name.lower().endswith(".pdf"):
             result.has_pdfs = True
             if PYPDF_AVAILABLE:
@@ -521,12 +659,12 @@ def process_files(files: list) -> ProcessedFiles:
                             f"{'...[zkráceno]' if len(extracted) > 8000 else ''}"
                         )
                     else:
-                        text_parts.append(f"📄 PDF SOUBOR: {name} — nepodařilo se extrahovat text (pravděpodobně skenovaný obrázek).")
+                        text_parts.append(f"📄 PDF SOUBOR: {name} - nepodařilo se extrahovat text (pravděpodobně skenovaný obrázek).")
                 except Exception as e:
-                    text_parts.append(f"📄 PDF SOUBOR: {name} — chyba při čtení: {str(e)}")
+                    text_parts.append(f"📄 PDF SOUBOR: {name} - chyba při čtení: {str(e)}")
             else:
                 text_parts.append(
-                    f"📄 PDF SOUBOR: {name} — pypdf není nainstalován.\n"
+                    f"📄 PDF SOUBOR: {name} - pypdf není nainstalován.\n"
                     f"Spusť: pip install pypdf"
                 )
 
@@ -541,16 +679,16 @@ def process_files(files: list) -> ProcessedFiles:
                 decoded = base64.b64decode(raw_data).decode("utf-8", errors="replace")
                 ext = name.rsplit(".", 1)[-1] if "." in name else "txt"
                 text_parts.append(
-                    f"📝 SOUBOR: {name}\n"
+                    f"  SOUBOR: {name}\n"
                     f"```{ext}\n{decoded[:6000]}"
                     f"{'...[zkráceno]' if len(decoded) > 6000 else ''}\n```"
                 )
             except Exception as e:
-                text_parts.append(f"📝 SOUBOR: {name} — chyba při čtení: {str(e)}")
+                text_parts.append(f"  SOUBOR: {name} - chyba při čtení: {str(e)}")
 
         # --- OSTATNÍ ---
         else:
-            text_parts.append(f"📎 PŘÍLOHA: {name} (typ: {mime}) — binární soubor, nelze zobrazit jako text.")
+            text_parts.append(f"📎 PŘÍLOHA: {name} (typ: {mime}) - binární soubor, nelze zobrazit jako text.")
 
     result.text_summary = "\n\n".join(text_parts)
     return result
@@ -558,7 +696,7 @@ def process_files(files: list) -> ProcessedFiles:
 
 def build_human_message(text: str, processed: ProcessedFiles) -> HumanMessage:
     """
-    Sestaví HumanMessage — buď prostý text, nebo multimodální
+    Sestaví HumanMessage - buď prostý text, nebo multimodální
     obsah pro Vision (text + obrázky).
     """
     parts = []
@@ -575,7 +713,7 @@ def build_human_message(text: str, processed: ProcessedFiles) -> HumanMessage:
     parts.extend(processed.image_blocks)
 
     if len(parts) == 1 and parts[0]["type"] == "text":
-        # Pouze text — prostý HumanMessage (kompatibilní se všemi modely)
+        # Pouze text - prostý HumanMessage (kompatibilní se všemi modely)
         return HumanMessage(content=parts[0]["text"])
     elif parts:
         # Multimodální obsah
@@ -586,6 +724,13 @@ def build_human_message(text: str, processed: ProcessedFiles) -> HumanMessage:
 # --- DOCKER & VECTOR DB ---
 try:
     docker_client = docker.from_env()
+    # Předstáhni obrazy pro rychlý start testování
+    def _pull_docker_images():
+        for img in ["python:3.11-slim", "node:20-slim", "bash:5"]:
+            try: docker_client.images.pull(img)
+            except: pass
+    import threading
+    threading.Thread(target=_pull_docker_images, daemon=True).start()
 except Exception:
     docker_client = None
 
@@ -610,10 +755,10 @@ app = FastAPI(title="Engineering AI Backend v9.2", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # =============================================================================
-# BEZPEČNOST — API KEY MIDDLEWARE + RATE LIMITING
+# BEZPEČNOST - API KEY MIDDLEWARE + RATE LIMITING
 # =============================================================================
 
-# Rate limiting — max požadavků za okno
+# Rate limiting - max požadavků za okno
 import collections
 _rate_buckets: dict = collections.defaultdict(list)
 RATE_LIMIT_REQUESTS = 60   # max požadavků
@@ -648,7 +793,7 @@ async def security_middleware(request: Request, call_next):
     ip = request.client.host if request.client else "unknown"
     path = request.url.path
 
-    # Veřejné cesty — bez autentizace
+    # Veřejné cesty - bez autentizace
     if path in PUBLIC_PATHS:
         return await call_next(request)
 
@@ -656,7 +801,7 @@ async def security_middleware(request: Request, call_next):
     if not _check_rate_limit(ip):
         return JSONResponse(
             status_code=429,
-            content={"detail": "Too Many Requests — zpomal."}
+            content={"detail": "Too Many Requests - zpomal."}
         )
 
     # Pokud není nastaven API_SECRET, autentizace je vypnutá (vývoj)
@@ -667,10 +812,10 @@ async def security_middleware(request: Request, call_next):
     if _is_locked_out(ip):
         return JSONResponse(
             status_code=403,
-            content={"detail": "IP dočasně zablokována — příliš mnoho neúspěšných pokusů."}
+            content={"detail": "IP dočasně zablokována - příliš mnoho neúspěšných pokusů."}
         )
 
-    # Ověř API klíč — z headeru X-API-Key nebo query parametru ?key=
+    # Ověř API klíč - z headeru X-API-Key nebo query parametru ?key=
     provided_key = (
         request.headers.get("X-API-Key") or
         request.query_params.get("key") or
@@ -696,12 +841,12 @@ async def health_check():
     return {"status": "ok", "auth_enabled": bool(API_SECRET), "version": "9.2"}
 
 # =============================================================================
-# POST-TASK JOBS — quality scoring + Telegram (běží na pozadí)
+# POST-TASK JOBS - quality scoring + Telegram (běží na pozadí)
 # =============================================================================
 
 async def _post_task_jobs(task_id: str, state: dict, query: str,
                           response: str, code: str, lang: str, model: str):
-    """Spustí se po dokončení úkolu — quality scoring + Telegram notifikace."""
+    """Spustí se po dokončení úkolu - quality scoring + Telegram notifikace."""
     await asyncio.sleep(0.5)  # nech stream dorazit na frontend
 
     # 1. Quality scoring (synchronní LLM call v threadu)
@@ -730,8 +875,8 @@ REASON: <1 věta česky>""")
 
     # 2. Telegram notifikace
     has_code = bool(code.strip())
-    score_emoji = "🟢" if (score or 0) >= 7 else "🟡" if (score or 0) >= 5 else "🔴"
-    quality_line = f"{score_emoji} Kvalita: *{score}/10* — {reason}" if score else ""
+    score_emoji = "[ZELENA]" if (score or 0) >= 7 else "[ZLUTA]" if (score or 0) >= 5 else "[CERVENA]"
+    quality_line = f"{score_emoji} Kvalita: *{score}/10* - {reason}" if score else ""
     short_query = query[:120] + ("..." if len(query) > 120 else "")
     msg = (f"✅ *Úkol dokončen*\n"
            f"❓ _{short_query}_\n"
@@ -740,7 +885,7 @@ REASON: <1 věta česky>""")
     await telegram_notify(msg)
 
 # =============================================================================
-# NOČNÍ ANALÝZA — spouští se každou noc ve 02:00
+# NOČNÍ ANALÝZA - spouští se každou noc ve 02:00
 # =============================================================================
 
 async def night_analysis_loop():
@@ -826,10 +971,10 @@ Odpověz česky, strukturovaně."""
         await telegram_notify(f"⚠️ Noční analýza selhala: {str(e)[:100]}")
 
 # =============================================================================
-# FRONTA ÚKOLŮ — batch zpracování
+# FRONTA ÚKOLŮ - batch zpracování
 # =============================================================================
 
-# Globální fronta — zpracovává se sekvenčně
+# Globální fronta - zpracovává se sekvenčně
 _queue_processing = False
 
 async def process_queue():
@@ -855,7 +1000,7 @@ async def process_queue():
                         (datetime.now().isoformat(), qid))
             conn.commit(); conn.close()
 
-            # Telegram — start
+            # Telegram - start
             await telegram_notify(f"⚙️ *Fronta: spouštím úkol #{qid}*\n_{message[:100]}_")
 
             # Spusť přes pipeline
@@ -899,7 +1044,7 @@ async def process_queue():
                          datetime.now().isoformat(), qid))
             conn.commit(); conn.close()
 
-            # Telegram — hotovo
+            # Telegram - hotovo
             emoji = "✅" if status == "done" else "❌"
             await telegram_notify(
                 f"{emoji} *Fronta: úkol #{qid} dokončen*\n"
@@ -914,14 +1059,14 @@ async def process_queue():
 def _llm(state: AgentState, with_tools: bool = False):
     llm = build_llm(state.get("model_id") or ACTIVE_MODEL)
     if with_tools:
-        return llm.bind_tools([execute_linux_command, search_internet, git_operation])
+        return llm.bind_tools(ALL_TOOLS)
     return llm
 
 def _msgs(state: AgentState):
     return list(state["messages"])
 
 # =============================================================================
-# TELEMETRIE — ceny tokenů a tracking
+# TELEMETRIE - ceny tokenů a tracking
 # =============================================================================
 
 # Ceny v USD za 1000 tokenů (input / output)
@@ -941,7 +1086,6 @@ def calc_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 
 def save_telemetry(task_id: str, agent_id: str, model: str,
                    input_tokens: int, output_tokens: int, duration_ms: int):
-    """Uloží telemetrická data do SQLite."""
     cost = calc_cost(model, input_tokens, output_tokens)
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -949,33 +1093,55 @@ def save_telemetry(task_id: str, agent_id: str, model: str,
         c.execute(
             'INSERT INTO telemetry (task_id,agent_id,model,input_tokens,output_tokens,cost_usd,duration_ms,date) '
             'VALUES (?,?,?,?,?,?,?,?)',
-            (task_id, agent_id, model, input_tokens, output_tokens, cost,
-             duration_ms, datetime.now().isoformat())
+            (task_id, agent_id, model, int(input_tokens), int(output_tokens), cost,
+             int(duration_ms), datetime.now().isoformat())
         )
         conn.commit(); conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[TELEMETRY] Chyba ukládání ({agent_id}): {e}")
 
 def extract_usage(response) -> tuple[int, int]:
-    """Extrahuje počet tokenů z AIMessage — funguje pro OpenAI i Claude."""
+    """Extrahuje počet tokenů z AIMessage - funguje pro OpenAI i Claude."""
+    # 1. usage_metadata (nové LangChain verze)
     meta = getattr(response, "usage_metadata", None)
-    if meta:
-        return meta.get("input_tokens", 0), meta.get("output_tokens", 0)
-    # Fallback pro starší verze LangChain
-    resp_meta = getattr(response, "response_metadata", {})
-    usage = resp_meta.get("token_usage") or resp_meta.get("usage") or {}
-    inp = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
-    out = usage.get("completion_tokens") or usage.get("output_tokens") or 0
-    return inp, out
+    if meta and isinstance(meta, dict):
+        inp = meta.get("input_tokens") or meta.get("prompt_tokens") or 0
+        out = meta.get("output_tokens") or meta.get("completion_tokens") or 0
+        if inp > 0 or out > 0:
+            return int(inp), int(out)
+
+    # 2. response_metadata.token_usage (OpenAI starší)
+    resp_meta = getattr(response, "response_metadata", {}) or {}
+    for key in ["token_usage", "usage"]:
+        usage = resp_meta.get(key)
+        if usage and isinstance(usage, dict):
+            inp = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+            out = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+            if inp > 0 or out > 0:
+                return int(inp), int(out)
+
+    # 3. Přímé atributy (některé verze)
+    additional = getattr(response, "additional_kwargs", {}) or {}
+    usage2 = additional.get("usage") or {}
+    if usage2:
+        inp = usage2.get("prompt_tokens") or usage2.get("input_tokens") or 0
+        out = usage2.get("completion_tokens") or usage2.get("output_tokens") or 0
+        if inp > 0 or out > 0:
+            return int(inp), int(out)
+
+    # 4. Odhadni z délky textu pokud vše selže (1 token   4 znaky)
+    content = getattr(response, "content", "") or ""
+    if content and isinstance(content, str) and len(content) > 10:
+        estimated_out = max(1, len(content) // 4)
+        return 0, estimated_out  # input neznáme, output odhadneme
+
+    return 0, 0
 
 def _llm_tracked(state: AgentState, agent_id: str, with_tools: bool = False):
-    """
-    Wrapper kolem _llm — vrátí funkci invoke() která automaticky
-    trackuje tokeny a ukládá telemetrii do SQLite.
-    """
+    """Wrapper - trackuje tokeny a ukládá telemetrii do SQLite."""
     llm = build_llm(state.get("model_id") or ACTIVE_MODEL)
     if with_tools:
-        llm = llm.bind_tools([execute_linux_command, search_internet, git_operation])
+        llm = llm.bind_tools(ALL_TOOLS)
     model = state.get("model_id") or ACTIVE_MODEL
     task_id = state.get("task_id", "unknown")
 
@@ -985,8 +1151,8 @@ def _llm_tracked(state: AgentState, agent_id: str, with_tools: bool = False):
             response = llm.invoke(messages)
             duration_ms = int((time.time() - t0) * 1000)
             inp, out = extract_usage(response)
-            if inp > 0 or out > 0:
-                save_telemetry(task_id, agent_id, model, inp, out, duration_ms)
+            save_telemetry(task_id, agent_id, model, inp, out, duration_ms)
+            print(f"[TELEMETRY] {agent_id}: in={inp} out={out} ms={duration_ms} task={task_id[:12]}")
             return response
 
     return TrackedLLM()
@@ -1000,22 +1166,65 @@ def manazer_node(state: AgentState):
     query = str(state["messages"][-1].content if state["messages"] else "").lower()
     is_web = any(w in query for w in WEB_KEYWORDS)
 
+    # Detekce follow-up / konverzačních dotazů - VŽDY jdou na Expert bez pipeline
+    FOLLOWUP_KEYWORDS = [
+        "kde", "jak to", "co to", "co znamená", "vysvětli", "co jsi", "co je to",
+        "kde najdu", "kde to", "jak najdu", "jak ho", "jak ji", "ukáž mi to",
+        "co jsi vytvořil", "co jsi udělal", "kde je ten", "kde je kód",
+        "díky", "super", "ok", "dobře", "rozumím", "a co", "a jak",
+    ]
+    is_followup = any(query.strip().startswith(w) or w in query for w in FOLLOWUP_KEYWORDS)
+    # Krátké dotazy (do 8 slov) bez kódových indikátorů jsou pravděpodobně follow-up
+    word_count = len(query.split())
+    has_code_intent = any(w in query for w in ["vytvoř", "napiš", "vygeneruj", "implementuj", "oprav", "přidej", "smaž", "refaktor"])
+    if word_count <= 6 and not has_code_intent:
+        is_followup = True
+
+    if is_followup:
+        return {
+            "messages": [AIMessage(content="Odpovídám na dotaz přímo.")],
+            "route": "Expert",
+            "is_web_project": False,
+        }
+
+    # Detekce SysAdmin úkolů - soubory, složky, server, git
+    SYSADMIN_KEYWORDS = [
+        "ulož", "uložit", "uloz", "ulozit",
+        "složk", "adresář", "soubor",
+        "přesuň", "přejmenuj", "smaž soubor", "vytvoř složku",
+        "git", "commit", "push", "pull",
+        "restart", "spusť server", "zastav server",
+        "nainstaluj", "pip install", "npm install",
+        "chmod", "chown", "ln -s",
+    ]
+    is_sysadmin = any(w in query for w in SYSADMIN_KEYWORDS)
+    if is_sysadmin:
+        return {
+            "messages": [AIMessage(content="Deleguji úkol na uzel: SysAdmin")],
+            "route": "SysAdmin",
+            "is_web_project": False,
+        }
+
     sys_msg = SystemMessage(content=team_identity_with_context("MANAZER") + """
-    Zvol trasu:
-    - [ROUTE:PLANNER] pro velké projekty (e-shopy, komplexní aplikace, weby).
-    - [ROUTE:LINUX] pro terminál, bash, Git a HW.
-    - [ROUTE:WEB] pro aktuální vyhledávání.
-    - [ROUTE:EXPERT] pro manuály, fotky nebo obecné dotazy.
-    - [ROUTE:PYTHON] pro skripty a algoritmy.
-    """)
+Zvol trasu pro ukol:
+- [ROUTE:PLANNER] pro velke projekty (e-shopy, komplexni aplikace, weby s vice strankami)
+- [ROUTE:LINUX] pro terminal, bash, Git, spravu serveru, soubory
+- [ROUTE:WEB] pro vyhledavani aktualnich informaci na internetu
+- [ROUTE:EXPERT] pro analyzu dokumentu, obrazku, jednoduche dotazy
+- [ROUTE:PYTHON] pro Python skripty, algoritmy, datove zpracovani
+
+DULEZITE: [ROUTE:PLANNER] jen pro skutecne velke projekty. Jednoduche skripty -> [ROUTE:PYTHON].
+""")
     response = _llm_tracked(state, "MANAZER").invoke([sys_msg] + _msgs(state))
     route_upper = (response.content or "").upper()
 
-    if is_web or any(w in query for w in ["projekt", "aplikac", "systém"]): route = "Planner"
+    # Planner jen pro skutečně velké webové projekty - ne pro každý dotaz se slovem "systém"
+    if is_web: route = "Planner"
     elif "[ROUTE:PLANNER]" in route_upper: route = "Planner"
     elif "[ROUTE:LINUX]"   in route_upper: route = "SysAdmin"
     elif "[ROUTE:WEB]"     in route_upper: route = "Vyzkumnik"
     elif "[ROUTE:EXPERT]"  in route_upper: route = "Expert"
+    elif "[ROUTE:PYTHON]"  in route_upper: route = "Architekt"
     else:                                   route = "Architekt"
 
     return {
@@ -1025,12 +1234,12 @@ def manazer_node(state: AgentState):
     }
 
 def designer_node(state: AgentState):
-    """Webový Designer — specializovaný agent pro moderní UI/UX s Tailwind CSS."""
+    """Webový Designer - specializovaný agent pro moderní UI/UX s Tailwind CSS."""
     specs = state.get("project_specs", {})
     specs_text = ""
     if specs:
         specs_text = "\n\nSPECIFIKACE OD KELNAPEHO:\n" + "\n".join(
-            f"• {k}: {v}" for k, v in specs.items() if v
+            f"  {k}: {v}" for k, v in specs.items() if v
         )
 
     plan_info = ""
@@ -1038,12 +1247,12 @@ def designer_node(state: AgentState):
         plan_info = f"\nAKTUÁLNÍ KROK: {state['plan'][state['current_step']]}"
 
     sys_msg = SystemMessage(content=team_identity_with_context("DESIGNER") + f"""
-    Jsi Webový Designer — expert na moderní UI/UX.
+    Jsi Webový Designer - expert na moderní UI/UX.
 
     TVOJE PRAVIDLA:
-    1. Používej VÝHRADNĚ Tailwind CSS (CDN) — žádný vlastní CSS pokud není nezbytný.
-    2. Piš KOMPLETNÍ, funkční HTML soubor (vše v jednom — HTML + Tailwind + JS).
-    3. Design musí být PROFESIONÁLNÍ — gradient pozadí, karty se stíny, hover efekty.
+    1. Používej VÝHRADNĚ Tailwind CSS (CDN) - žádný vlastní CSS pokud není nezbytný.
+    2. Piš KOMPLETNÍ, funkční HTML soubor (vše v jednom - HTML + Tailwind + JS).
+    3. Design musí být PROFESIONÁLNÍ - gradient pozadí, karty se stíny, hover efekty.
     4. Zahrň: hero sekci, navigaci, responsivní layout (mobile-first).
     5. Přidej JS pro interaktivitu (košík, menu, animace).
     6. Komentuj sekce v kódu pro snadnou editaci.
@@ -1061,7 +1270,7 @@ def designer_node(state: AgentState):
 def planner_node(state: AgentState):
     sys_msg = SystemMessage(content=team_identity_with_context("PLANNER") + """
     Jsi Technický Plánovač. Rozlož zadání na DETAILNÍ kroky.
-    PRAVIDLA: 5–10 kroků, technicky specifické, zahrň Rešerši/Arch/Impl/Test/Docs.
+    PRAVIDLA: 5-10 kroků, technicky specifické, zahrň Rešerši/Arch/Impl/Test/Docs.
     ODPOVĚZ POUZE VALIDNÍM JSON POLEM ŘETĚZCŮ.
     """)
     response = _llm_tracked(state, "PLANNER").invoke([sys_msg] + _msgs(state))
@@ -1083,61 +1292,79 @@ def next_step_node(state: AgentState):
                 "iterations": 0, "status": "", "error_log": ""}
     return {"route": "FINISH"}
 
+def _build_memory_context(state: AgentState) -> str:
+    """Sestaví kontext ze sdílené paměti agentů."""
+    mem = state.get("agent_memory", {})
+    if not mem:
+        return ""
+    lines = ["\n--- POZNATKY OSTATNÍCH AGENTŮ ---"]
+    for agent, note in mem.items():
+        lines.append(f"[{agent}]: {note[:300]}")
+    lines.append("---")
+    return "\n".join(lines)
+
 def sysadmin_node(state: AgentState):
-    # Získej živý Git status pro kontext
     git_status, _ = _git_run(["status", "--short", "--branch"])
-    git_remote, _ = _git_run(["remote", "-v"])
     git_branch, _ = _git_run(["branch", "--show-current"])
+    memory_ctx = _build_memory_context(state)
 
     sys_msg = SystemMessage(content=team_identity_with_context("SYSADMIN") + f"""
-Jsi Senior SysAdmin a Git specialista pro projekt Engineering AI System.
+Jsi Senior SysAdmin. Spravuješ server, soubory a git.
 
 PROSTŘEDÍ:
-- Server: Ubuntu (x86_64), uživatel: kelnape
-- Projekt: ~/moje_prostredi/
-- Backend: ~/moje_prostredi/main.py  (FastAPI + LangGraph, port 8000)
-- Frontend: ~/moje_prostredi/frontend/  (React + Vite, port 5173)
-- Virtualenv: ~/moje_prostredi/.venv/
-- Git repozitář: {GIT_REPO_PATH}
+- Projekt: {GIT_REPO_PATH}
+- Uživatel: kelnape, server: Ubuntu x86_64
 
-GIT STAV (aktuální):
-Větev: {git_branch.strip()}
-Status:
-{git_status}
-Remote:
-{git_remote}
+GIT STAV: větev={git_branch.strip()}, změny={git_status.strip() or 'žádné'}
+{memory_ctx}
 
-TVOJE GIT NÁSTROJE — VŽDY POUŽÍVEJ git_operation():
-- git_operation("status")          → stav repozitáře
-- git_operation("log")             → historie commitů
-- git_operation("diff")            → co se změnilo
-- git_operation("add")             → přidej vše do stage
-- git_operation("commit", message="zpráva")  → vytvoř commit
-- git_operation("push")            → push na remote
-- git_operation("pull")            → pull z remote
-- git_operation("branch")          → seznam větví
-- git_operation("checkout", branch="nazev") → přepni větev
+TVOJE NÁSTROJE:
+- execute_linux_command(cmd)     -> bash příkazy
+- read_file(path)                -> přečti soubor nebo adresář  
+- write_file(path, content)      -> zapiš soubor (VŽDY nejdřív read_file pokud soubor existuje!)
+- git_operation(op, ...)         -> git status/add/commit/push/pull
 
-GIT WORKFLOW PRO COMMIT+PUSH:
-1. git_operation("status") — zjisti co se změnilo
-2. git_operation("add") — přidej soubory
-3. git_operation("commit", message="popis změn") — commitni
-4. git_operation("push") — pushni na GitHub
+ULOŽENÍ SOUBORU - WORKFLOW:
+1. Zjisti obsah kódu z kontextu konverzace
+2. execute_linux_command("mkdir -p /cesta/ke/složce") - vytvoř složku pokud neexistuje
+3. write_file("/cesta/ke/složce/nazev.py", obsah) - zapiš soubor
+4. execute_linux_command("ls /cesta/ke/složce") - ověř že soubor existuje
 
-PRAVIDLA:
-- Pro commit zprávy používej konvenci: feat/fix/chore/docs: popis
-- Nikdy force-push bez explicitního pokynu
-- Před pushem vždy zkontroluj status
-- Pro systémové příkazy (restart, monitoring) používej execute_linux_command()
-- Systemd: systemctl status/start/stop/restart engineering-ai
-- Logy backendu: journalctl -u engineering-ai -f
+PRAVIDLA: Nikdy force-push. Před zápisem čti. Používej feat/fix/chore: prefix pro commity.
 """)
-    ai_resp = _llm_tracked(state, "SYSADMIN", with_tools=True).invoke([sys_msg] + _msgs(state))
-    tool_results = execute_tool_calls(ai_resp)
-    if tool_results:
-        followup = _llm_tracked(state, "SYSADMIN").invoke([sys_msg] + _msgs(state) + [ai_resp] + tool_results)
-        return {"messages": [ai_resp] + tool_results + [followup], "status": "DONE"}
-    return {"messages": [ai_resp], "status": "DONE"}
+
+    # Multi-step loop - max 5 iterací tool calls
+    messages = list(_msgs(state))
+    all_tool_results = []
+    memory_updates = {}
+
+    for step in range(5):
+        ai_resp = _llm_tracked(state, "SYSADMIN", with_tools=True).invoke([sys_msg] + messages)
+        tool_results = execute_tool_calls(ai_resp)
+
+        if not tool_results:
+            # Žádné další tool calls - agent je hotov
+            final_msgs = [ai_resp] if not all_tool_results else all_tool_results + [ai_resp]
+            # Ulož shrnutí do sdílené paměti
+            summary = (ai_resp.content or "")[:400]
+            memory_updates["SYSADMIN"] = summary
+            new_memory = {**state.get("agent_memory", {}), **memory_updates}
+            return {"messages": final_msgs, "status": "DONE", "agent_memory": new_memory}
+
+        # Přidej výsledky do konverzace pro další iteraci
+        messages = messages + [ai_resp] + tool_results
+        all_tool_results.extend([ai_resp] + tool_results)
+
+        # Zkontroluj jestli tool výstup obsahuje chybu
+        has_error = any("❌" in str(r.content) for r in tool_results)
+        if has_error and step >= 2:
+            break  # po 2 neúspěšných pokusech skonči
+
+    # Finální shrnutí po všech tool calls
+    followup = _llm_tracked(state, "SYSADMIN").invoke([sys_msg] + messages)
+    memory_updates["SYSADMIN"] = (followup.content or "")[:400]
+    new_memory = {**state.get("agent_memory", {}), **memory_updates}
+    return {"messages": all_tool_results + [followup], "status": "DONE", "agent_memory": new_memory}
 
 def vyzkumnik_node(state: AgentState):
     sys_msg = SystemMessage(content=team_identity_with_context("VYZKUMNIK") + "Jsi Výzkumník. Hledej přes search_internet.")
@@ -1161,21 +1388,33 @@ def expert_node(state: AgentState):
     if vector_db and last_content:
         docs = vector_db.similarity_search(last_content, k=3)
         kontext = "\nZNALOSTI Z KNIHOVNY:\n" + "\n".join([d.page_content for d in docs])
+
+    memory_ctx = _build_memory_context(state)
+
     sys_msg = SystemMessage(content=team_identity_with_context("EXPERT") + f"""
-    Jsi Expert na analýzu dokumentů, obrázků a technických manuálů.
-    Pokud byla přiložena příloha (PDF, obrázek, soubor), analyzuj ji podrobně.
-    Odpověz technicky přesně a strukturovaně.
-    {kontext}
-    """)
+Jsi Expert a přímý asistent Kelnapeho. Odpovídáš na dotazy, analyzuješ dokumenty a obrázky.
+
+PROSTŘEDÍ SERVERU (vždy platí):
+- Pracovní adresář projektu: {GIT_REPO_PATH}
+- Backend: {GIT_REPO_PATH}/main.py
+- Frontend: {GIT_REPO_PATH}/frontend/src/App.jsx
+- Databáze: {GIT_REPO_PATH}/system_data.db
+- Virtualenv: {GIT_REPO_PATH}/.venv/
+- Server: Ubuntu, uživatel kelnape, dostupný na ai.kelnape.eu
+
+Pokud Kelnape ptá na "kde je", "kde najdu", "pracovní adresář" apod. - vždy odpověz konkrétní cestou.
+Odpovídej stručně a věcně. Neodkazuj na externí dokumentaci pokud znáš odpověď.
+{kontext}{memory_ctx}
+""")
     return {"messages": [_llm_tracked(state, "EXPERT").invoke([sys_msg] + _msgs(state))], "status": "DONE"}
 
 def architekt_node(state: AgentState):
-    # Webové projekty jdou na Designera
     if state.get("is_web_project"):
         return designer_node(state)
 
     specs = state.get("project_specs", {})
-    specs_text = ("\n\nSPECIFIKACE:\n" + "\n".join(f"• {k}: {v}" for k, v in specs.items() if v)) if specs else ""
+    specs_text = ("\n\nSPECIFIKACE:\n" + "\n".join(f"  {k}: {v}" for k, v in specs.items() if v)) if specs else ""
+    memory_ctx = _build_memory_context(state)
 
     pravidla = ""
     if vector_db:
@@ -1188,44 +1427,243 @@ def architekt_node(state: AgentState):
         plan_info = f"\nKROK ({state['current_step']+1}/{len(state['plan'])}): {state['plan'][state['current_step']]}"
 
     sys_msg = SystemMessage(content=team_identity_with_context("ARCHITEKT") + f"""
-    Jsi Architekt. Navrhni kód — použij {CB}python, {CB}bash nebo {CB}html podle kontextu.
-    {plan_info}{pravidla}{specs_text}
-    """)
-    return {"messages": [_llm_tracked(state, "ARCHITEKT").invoke([sys_msg] + _msgs(state))], "status": "AUDIT"}
+Jsi Architekt. Navrhni kod.
+
+JAZYKY:
+- {CB}python - Python skripty
+- {CB}bash - bash prikazy
+- {CB}html - webove stranky
+- {CB}vbscript - DIAdem skripty (VBS)
+- {CB}sud - DIAdem formulare SUD (XML format)
+
+DIADEM ZNALOSTI:
+- Inicializace: Call Diadem.Initialize / Call Diadem.Quit
+- Data API: Data.Root, Data.ChannelGroup.Add, Data.Channel.Add
+- Hodnoty: Data.Channel("nazev").Values.Value(i)
+- SUD formulare: XML s tagy SUD, Control, Button, TextBox, Label, ComboBox
+- SUD vstup: Dim val: val = SUD.GetControl("NazevPole").Value
+- Struktury: Sub/End Sub, Function/End Function, If/End If, For/Next
+
+{plan_info}{pravidla}{specs_text}{memory_ctx}
+""")
+    result = _llm_tracked(state, "ARCHITEKT").invoke([sys_msg] + _msgs(state))
+    # Ulož do sdílené paměti
+    arch_summary = f"Architekt navrhl: {(result.content or '')[:200]}"
+    new_memory = {**state.get("agent_memory", {}), "ARCHITEKT": arch_summary}
+    return {"messages": [result], "status": "AUDIT", "agent_memory": new_memory}
 
 def auditor_node(state: AgentState):
     last_msg = next((str(m.content) for m in reversed(state["messages"]) if m.content and CB in str(m.content)), "")
     if not last_msg:
         return {"messages": [AIMessage(content="⚠️ Kód k auditu nenalezen.")], "status": "PASS"}
-    sys_msg = SystemMessage(content=team_identity_with_context("AUDITOR") + "Zkontroluj kód. Odpověz PASS nebo FAIL + chyby.")
+
+    memory_ctx = _build_memory_context(state)
+    sys_msg = SystemMessage(content=team_identity_with_context("AUDITOR") + f"""
+Zkontroluj kód. Odpověz PASS nebo FAIL + seznam konkrétních chyb.
+Buď striktní - hledej: syntaktické chyby, logické chyby, bezpečnostní problémy, chybějící error handling.
+{memory_ctx}
+""")
     res = _llm_tracked(state, "AUDITOR").invoke([sys_msg, HumanMessage(content=last_msg)])
     status = "PASS" if "PASS" in (res.content or "").upper() else "FAIL"
     error_log = state.get("error_log", "")
-    if status == "FAIL": error_log += f"\n[Auditor]: {res.content}"
-    return {"messages": [res], "status": status, "error_log": error_log}
+    if status == "FAIL":
+        error_log += f"\n[Auditor]: {res.content}"
+
+    # Ulož audit výsledek do sdílené paměti pro Kodéra
+    audit_summary = f"Audit {'PASS' if status=='PASS' else 'FAIL'}: {(res.content or '')[:300]}"
+    new_memory = {**state.get("agent_memory", {}), "AUDITOR": audit_summary}
+    return {"messages": [res], "status": status, "error_log": error_log, "agent_memory": new_memory}
+
+def _check_vbscript_or_sud(state: AgentState, lang: str, code: str) -> dict:
+    """
+    Staticka syntakticka analyza VBScript a SUD (DIAdem) kodu.
+    Nelze spustit v Dockeru, ale muzeme zkontrolovat strukturu.
+    """
+    errors = []
+    warnings = []
+
+    if lang in ("sud", "xml"):
+        # SUD je XML - overime pomoci xml.etree
+        try:
+            import xml.etree.ElementTree as ET
+            ET.fromstring(code)
+            result_msg = "✅ SUD/XML syntax: OK - struktura je validní XML."
+            status = "PASS"
+        except Exception as e:
+            errors.append(f"XML chyba: {str(e)}")
+            status = "FAIL"
+            result_msg = f"❌ SUD/XML syntax FAIL:\n" + "\n".join(errors)
+
+    elif lang == "vbscript":
+        # VBScript - staticka analyza klicovych slov a struktury
+        lines = code.splitlines()
+        open_blocks = []
+        block_keywords = {
+            "sub": "end sub", "function": "end function",
+            "if": "end if", "for": "next", "do": "loop",
+            "while": "wend", "with": "end with",
+            "select case": "end select",
+        }
+
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip().lower()
+
+            # Zkontroluj otevírací bloky
+            for kw, closing in block_keywords.items():
+                if stripped.startswith(kw + " ") or stripped == kw:
+                    open_blocks.append((kw, i))
+                    break
+
+            # Zkontroluj uzavírací bloky
+            for kw, closing in block_keywords.items():
+                if stripped.startswith(closing) or stripped == closing:
+                    if open_blocks and open_blocks[-1][0] == kw:
+                        open_blocks.pop()
+                    elif open_blocks:
+                        warnings.append(f"Radek {i}: neocekavane '{closing}' (ocekavan konec '{open_blocks[-1][0]}')")
+
+            # Zkontroluj DIAdem-specificke API volani
+            diadem_api = ["diadem.initialize", "data.root", "data.channelgroup",
+                          "data.channel", "axis.x", "report.", "navigator."]
+            for api in diadem_api:
+                if api in stripped:
+                    warnings.append(f"Radek {i}: DIAdem API '{api}' - nelze overit bez DIAdem runtime")
+
+        # Nezavřene bloky
+        if open_blocks:
+            for kw, line_num in open_blocks:
+                errors.append(f"Nezavreny blok '{kw}' (otevren na radku {line_num})")
+
+        if errors:
+            status = "FAIL"
+            result_msg = (f"❌ VBScript syntax FAIL:\n" +
+                         "\n".join(f"  - {e}" for e in errors))
+        else:
+            status = "PASS"
+            warn_text = ""
+            if warnings:
+                warn_text = f"\n\n⚠️ Upozorneni ({len(warnings)}):\n" + "\n".join(f"  - {w}" for w in warnings[:5])
+            result_msg = (f"✅ VBScript syntax OK - {len(lines)} radku, "
+                         f"staticka analyza prosla.{warn_text}\n"
+                         f"ℹ️ Poznamka: Plne testovani vyzaduje DIAdem runtime - "
+                         f"Docker nema DIAdem API. Syntax a struktura bloku jsou v poradku.")
+
+    else:
+        result_msg = f"ℹ️ Jazyk '{lang}' - staticka analyza neni dostupna."
+        status = "PASS"
+
+    return {"messages": [AIMessage(content=result_msg)], "status": status}
+
 
 def tester_node(state: AgentState):
     if state["status"] == "FAIL":
-        return {"status": "FAIL", "messages": [AIMessage(content="⚠️ Tester přeskočen — Auditor hlásí FAIL.")]}
+        return {"status": "FAIL", "messages": [AIMessage(content="⚠️ Tester přeskočen - Auditor hlásí FAIL.")]}
     if not docker_client:
         return {"status": "PASS", "messages": [AIMessage(content="ℹ️ Docker nedostupný, testování přeskočeno.")]}
-    match = next((re.search(rf"{CB}python\n(.*?)\n{CB}", str(m.content), re.DOTALL)
-                  for m in reversed(state["messages"]) if m.content), None)
-    if not match:
-        return {"status": "PASS", "messages": [AIMessage(content="ℹ️ Žádný Python kód k testování.")]}
-    kod = match.group(1)
+
+    # Hledej kód ve všech podporovaných jazycích
+    all_messages = "\n".join(str(m.content) for m in state["messages"] if m.content)
+    detected_lang = None
+    detected_code = None
+
+    for lang in ["python", "javascript", "bash", "sh", "vbscript", "vbs", "sud", "xml"]:
+        pattern = rf"{CB}{lang}\n(.*?)\n{CB}"
+        match = re.search(pattern, all_messages, re.DOTALL | re.IGNORECASE)
+        if match:
+            detected_lang = {"sh": "bash", "vbs": "vbscript"}.get(lang, lang)
+            detected_code = match.group(1).strip()
+            break
+
+    if not detected_code:
+        return {"status": "PASS", "messages": [AIMessage(content="ℹ️ Žádný testovatelný kód nenalezen.")]}
+
+    import base64 as b64
+    import tempfile, os
+
     try:
-        cmd = f"pip install pytest > /dev/null 2>&1 && python3 -c '{kod.replace(chr(39), chr(34))}'"
-        res = docker_client.containers.run("python:3.10-slim", f"sh -c \"{cmd}\"", remove=True, timeout=30)
-        return {"messages": [AIMessage(content=f"✅ Docker OK:\n{res.decode()}")], "status": "PASS"}
+        # Bezpečná metoda: zapíšeme kód do temp souboru a přeneseme přes stdin/base64
+        encoded = b64.b64encode(detected_code.encode("utf-8")).decode("ascii")
+
+        if detected_lang == "python":
+            image = "python:3.11-slim"
+            # Dekóduj base64 -> soubor -> spusť
+            docker_cmd = [
+                "sh", "-c",
+                f"echo {encoded} | base64 -d > /tmp/code.py && "
+                f"python3 -m py_compile /tmp/code.py && "
+                f"python3 /tmp/code.py 2>&1 | head -50"
+            ]
+
+        elif detected_lang == "javascript":
+            image = "node:20-slim"
+            docker_cmd = [
+                "sh", "-c",
+                f"echo {encoded} | base64 -d > /tmp/code.js && "
+                f"node --check /tmp/code.js && "
+                f"timeout 10 node /tmp/code.js 2>&1 | head -50"
+            ]
+
+        elif detected_lang == "bash":
+            image = "bash:5"
+            docker_cmd = [
+                "sh", "-c",
+                f"echo {encoded} | base64 -d > /tmp/code.sh && "
+                f"bash -n /tmp/code.sh && "
+                f"echo 'Syntax: OK' && "
+                f"timeout 10 bash /tmp/code.sh 2>&1 | head -30"
+            ]
+
+        elif detected_lang in ("vbscript", "sud", "xml"):
+            # VBScript a SUD nelze spustit v Dockeru - staticka analyza
+            return _check_vbscript_or_sud(state, detected_lang, detected_code)
+
+        else:
+            return {"status": "PASS", "messages": [AIMessage(content=f"ℹ️ Jazyk '{detected_lang}' není podporován.")]}
+
+        result = docker_client.containers.run(
+            image, docker_cmd,
+            remove=True,
+            mem_limit="128m",
+            network_disabled=True,
+            read_only=False,
+            cpu_period=100000,
+            cpu_quota=50000,
+        )
+        output = result.decode("utf-8", errors="replace").strip()
+        if len(output) > 800:
+            output = output[:800] + "\n... (zkráceno)"
+
+        lang_emoji = {"python": "🐍", "javascript": "🟨", "bash": "🐚"}.get(detected_lang, "📄")
+        return {
+            "messages": [AIMessage(content=f"✅ Docker {lang_emoji} {detected_lang.title()} OK:\n```\n{output}\n```")],
+            "status": "PASS"
+        }
+
     except Exception as e:
-        error_log = state.get("error_log", "") + f"\n[Docker]: {str(e)}"
-        return {"messages": [AIMessage(content=f"❌ Docker selhal: {str(e)}")], "status": "FAIL", "error_log": error_log}
+        err = str(e)
+        try:
+            err_output = getattr(e, 'stderr', b'').decode('utf-8', errors='replace').strip() if hasattr(e, 'stderr') else err
+            if not err_output: err_output = err
+        except: err_output = err
+
+        error_log = state.get("error_log", "") + f"\n[Docker {detected_lang}]: {err_output[:500]}"
+        return {
+            "messages": [AIMessage(content=f"❌ Docker test selhal ({detected_lang}):\n```\n{err_output[:400]}\n```")],
+            "status": "FAIL",
+            "error_log": error_log
+        }
 
 def koder_node(state: AgentState):
-    return {"messages": [_llm_tracked(state, "KODER").invoke(
-        [SystemMessage(content=team_identity_with_context("KODER") + "Oprav chyby z logu: " + state.get("error_log", ""))]
-        + _msgs(state))], "iterations": state.get("iterations", 0) + 1}
+    memory_ctx = _build_memory_context(state)
+    sys_msg = SystemMessage(content=team_identity_with_context("KODER") + f"""
+Oprav chyby z logu. Vrať kompletní opravený kód.
+Chyby k opravení:
+{state.get("error_log", "-")}
+{memory_ctx}
+""")
+    result = _llm_tracked(state, "KODER").invoke([sys_msg] + _msgs(state))
+    new_memory = {**state.get("agent_memory", {}), "KODER": f"Opraveno: {(result.content or '')[:200]}"}
+    return {"messages": [result], "iterations": state.get("iterations", 0) + 1, "agent_memory": new_memory}
 
 def reflektor_node(state: AgentState):
     if not state.get("error_log", "").strip():
@@ -1237,14 +1675,43 @@ def reflektor_node(state: AgentState):
     return {"messages": [AIMessage(content=f"🧠 [SEBEREFLEXE]: {res.content}")], "status": "DONE"}
 
 def finalizer_node(state: AgentState):
-    sys_msg = SystemMessage(content=team_identity_with_context("FINALIZER") + "Sestav závěrečné shrnutí pro Kelnapeho.")
-    return {"messages": [_llm_tracked(state, "FINALIZER").invoke([sys_msg] + _msgs(state)[-3:])]}
+    # Vezmi jen poslední smysluplnou odpověď agenta (ne celou historii)
+    last_response = ""
+    for m in reversed(state["messages"]):
+        content = m.content if isinstance(m.content, str) else ""
+        # Přeskoč krátké systémové zprávy a zprávy Manažera
+        if content and len(content) > 50 and not content.startswith("Deleguji"):
+            last_response = content
+            break
+
+    if not last_response:
+        return {"messages": [AIMessage(content="Hotovo.")]}
+
+    # Pokud je odpověď krátká a přímá - neshrnuj ji, jen ji pošli
+    if len(last_response) < 300:
+        return {"messages": [AIMessage(content=last_response)]}
+
+    sys_msg = SystemMessage(content=team_identity("FINALIZER") + """
+Jsi Finalizér. Shrň POUZE výsledek aktuálního úkolu.
+
+PRAVIDLA:
+- Shrň jen poslední odpověď - NE celou historii konverzace
+- NIKDY nezmiňuj git commity, závislosti, server ani strukturu projektu
+- NIKDY nepřidávej "dejte mi vědět" nebo "pokud máte dotazy"
+- Max 2-3 věty, věcně
+- Pokud byl vygenerován kód, napiš jen co dělá
+""")
+    result = _llm_tracked(state, "FINALIZER").invoke([
+        sys_msg,
+        HumanMessage(content=f"Shrň tuto odpověď:\n\n{last_response[:2000]}")
+    ])
+    return {"messages": [result]}
 
 def quality_node(state: AgentState) -> dict:
     """
     Hodnotí kvalitu výstupu na škále 1-10.
     Ukládá skóre + zdůvodnění do SQLite.
-    Spouští se asynchronně po finalizaci — netlačí uživatele.
+    Spouští se asynchronně po finalizaci - netlačí uživatele.
     """
     try:
         last_response = ""
@@ -1372,7 +1839,7 @@ async def chat_endpoint(request: ChatRequest):
         effective_model = model_id
         if processed.has_images and model_id == "gpt-4o-mini":
             effective_model = "gpt-4o"
-            yield json.dumps({"type": "info", "message": "📸 Obrázek detekován — přepínám na GPT-4o Vision"}) + "\n"
+            yield json.dumps({"type": "info", "message": "  Obrázek detekován - přepínám na GPT-4o Vision"}) + "\n"
 
         # Sestavení zprávy s přílohami + kontextem editoru
         editor_ctx = ""
@@ -1417,6 +1884,7 @@ async def chat_endpoint(request: ChatRequest):
                 "task_id": task_id,
                 "project_specs": specs,
                 "is_web_project": is_web,
+                "agent_memory": {},  # sdílená paměť mezi agenty
             }
             history_contents = []
             async for output in agent_app.astream(initial_state):
@@ -1430,7 +1898,6 @@ async def chat_endpoint(request: ChatRequest):
                     if "messages" in update and update["messages"]:
                         for m in update["messages"]:
                             if m and hasattr(m, "content") and m.content:
-                                # Pro multimodální zprávy extrahujeme jen text část
                                 content = m.content
                                 if isinstance(content, list):
                                     content = " ".join(
@@ -1438,6 +1905,20 @@ async def chat_endpoint(request: ChatRequest):
                                     )
                                 if content:
                                     history_contents.append(content)
+                                    # Live stream - pošli výstup agenta do workspace
+                                    # Přeskočíme krátké systémové zprávy
+                                    if len(content) > 30 and node not in ("Nextstep",):
+                                        # Detekuj jazyk pro highlighting
+                                        live_lang = "text"
+                                        for l in ["python","bash","html","javascript","json"]:
+                                            if f"```{l}" in content or f"```{l}\n" in content.lower():
+                                                live_lang = l; break
+                                        yield json.dumps({
+                                            "type": "agent_output",
+                                            "node": node,
+                                            "content": content[:3000],  # max 3000 znaků live
+                                            "lang": live_lang,
+                                        }) + "\n"
 
             final_raw = str(history_contents[-1]) if history_contents else "Úkol dokončen."
 
@@ -1450,6 +1931,9 @@ async def chat_endpoint(request: ChatRequest):
                 if code: break
 
             clean_text = re.sub(rf"{CB}.*?{CB}", "", final_raw, flags=re.DOTALL).strip()
+            # Pokud clean_text je prázdný (celá odpověď byl kód), použij final_raw
+            if not clean_text:
+                clean_text = final_raw[:500].strip()
 
             try:
                 conn = sqlite3.connect(DB_PATH); c = conn.cursor()
@@ -1457,17 +1941,20 @@ async def chat_endpoint(request: ChatRequest):
                           (task_id, request.message, clean_text, code,
                            datetime.now().strftime("%H:%M:%S"), model_id))
                 conn.commit(); conn.close()
-            except Exception: pass
+                print(f"[HISTORY] Uloženo task_id={task_id}, délka={len(clean_text)}")
+            except Exception as e:
+                print(f"[HISTORY] Chyba při ukládání: {e}")
 
             SESSION_HISTORY.append(HumanMessage(content=request.message))
             SESSION_HISTORY.append(AIMessage(content=clean_text))
             SESSION_HISTORY = SESSION_HISTORY[-(MAX_HISTORY * 2):]
+            _save_session_history()  # Perzistuj pro případ restartu
 
             yield json.dumps({"type": "final", "response": clean_text, "code": code,
                               "lang": lang, "date": datetime.now().strftime("%H:%M:%S"),
                               "model": model_id, "task_id": task_id}) + "\n"
 
-            # Quality scoring + Telegram — na pozadí, neblokuje stream
+            # Quality scoring + Telegram - na pozadí, neblokuje stream
             asyncio.create_task(_post_task_jobs(
                 task_id=task_id, state=initial_state,
                 query=request.message, response=clean_text,
@@ -1562,10 +2049,10 @@ async def delete_memory(memory_id: str):
 # --- TELEMETRIE ---
 @app.get("/api/telemetry")
 async def get_telemetry(limit: int = 10):
-    """Vrátí telemetrii posledních N úkolů — tokeny a cena per agent."""
+    """Vrátí telemetrii posledních N úkolů - tokeny a cena per agent."""
     try:
         conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-        c.execute('SELECT DISTINCT task_id FROM telemetry ORDER BY MIN(date) DESC LIMIT ?', (limit,))
+        c.execute('SELECT DISTINCT task_id FROM telemetry ORDER BY rowid DESC LIMIT ?', (limit,))
         task_ids = [r[0] for r in c.fetchall()]
         if not task_ids:
             conn.close()
@@ -1573,9 +2060,10 @@ async def get_telemetry(limit: int = 10):
         ph = ",".join("?" * len(task_ids))
         c.execute(f'''
             SELECT task_id, agent_id, model,
-                   SUM(input_tokens), SUM(output_tokens), SUM(cost_usd), SUM(duration_ms), MIN(date)
+                   SUM(input_tokens), SUM(output_tokens), SUM(cost_usd), SUM(duration_ms), MAX(date)
             FROM telemetry WHERE task_id IN ({ph})
-            GROUP BY task_id, agent_id ORDER BY MIN(date) DESC
+            GROUP BY task_id, agent_id
+            ORDER BY task_id DESC
         ''', task_ids)
         rows = c.fetchall()
         c.execute('SELECT SUM(input_tokens), SUM(output_tokens), SUM(cost_usd) FROM telemetry')
@@ -1600,6 +2088,27 @@ async def get_telemetry(limit: int = 10):
                 "totals": {"input_tokens": int(totals_row[0] or 0),
                            "output_tokens": int(totals_row[1] or 0),
                            "cost_usd": round(float(totals_row[2] or 0), 4)}}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/telemetry/debug")
+async def telemetry_debug():
+    """Debug - vrátí poslední záznamy telemetrie."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('SELECT * FROM telemetry ORDER BY id DESC LIMIT 5')
+        rows = cur.fetchall()
+        cur.execute('SELECT COUNT(*) FROM telemetry')
+        total = cur.fetchone()[0]
+        conn.close()
+        result = {"total_records": total, "last_5": []}
+        for r in rows:
+            result["last_5"].append({
+                "id": r[0], "task_id": r[1], "agent": r[2],
+                "model": r[3], "input": r[4], "output": r[5],
+                "cost": r[6], "ms": r[7], "date": r[8]
+            })
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1641,7 +2150,7 @@ async def analyze_endpoint(request: AnalyzeRequest):
         sys_msg = SystemMessage(content="""
         Jsi analytický expert. Tvým úkolem je důkladně analyzovat přiložený soubor.
 
-        PRO OBRÁZKY: Popiš co vidíš — objekty, text, schémata, grafy, kód, diagramy.
+        PRO OBRÁZKY: Popiš co vidíš - objekty, text, schémata, grafy, kód, diagramy.
         Pokud jde o technický diagram nebo schéma, vysvětli architekturu a komponenty.
 
         PRO PDF: Shrň hlavní obsah, klíčové body, tabulky a strukturu dokumentu.
@@ -1735,7 +2244,7 @@ async def delete_prompt(agent_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
-# ZIP EXPORT — generuje strukturovaný projekt ke stažení
+# ZIP EXPORT - generuje strukturovaný projekt ke stažení
 # =============================================================================
 
 class ZipExportRequest(BaseModel):
@@ -1795,7 +2304,7 @@ Projekt generovaný Engineering AI System v9.2
 
 ## Spuštění
 1. Otevři `index.html` v prohlížeči
-   — nebo —
+   - nebo -
 2. Spusť lokální server:
    ```bash
    python3 -m http.server 8080
@@ -1805,10 +2314,10 @@ Projekt generovaný Engineering AI System v9.2
 ## Struktura
 ```
 {name}/
-  index.html    — hlavní stránka
-  style.css     — styly
-  script.js     — JavaScript logika
-  assets/       — obrázky a média
+  index.html    - hlavní stránka
+  style.css     - styly
+  script.js     - JavaScript logika
+  assets/       - obrázky a média
 ```
 
 ## Úpravy
@@ -1906,7 +2415,7 @@ class GitCommitRequest(BaseModel):
 
 @app.post("/api/git/commit")
 async def git_commit_endpoint(request: GitCommitRequest):
-    """Stage all → commit → (volitelně) push."""
+    """Stage all -> commit -> (volitelně) push."""
     results = []
     try:
         # 1. Add
@@ -1935,15 +2444,58 @@ async def git_pull_endpoint():
     out, ok = _git_run(["pull", "--rebase"])
     return {"status": "ok" if ok else "error", "out": out}
 
-@app.get("/api/context")
-async def get_context():
-    """Debug endpoint — vrátí živý kontext projektu který dostanou agenti."""
+@app.get("/api/debug/db")
+async def debug_db():
+    """Kompletní debug stav databáze."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        counts = {}
+        for table in ["task_history", "telemetry", "feedback", "task_queue"]:
+            try:
+                cur.execute(f"SELECT COUNT(*) FROM {table}")
+                counts[table] = cur.fetchone()[0]
+            except Exception as e:
+                counts[table] = f"chyba: {e}"
+        cols_h = [r[1] for r in cur.execute("PRAGMA table_info(task_history)").fetchall()]
+        cols_t = [r[1] for r in cur.execute("PRAGMA table_info(telemetry)").fetchall()]
+        cur.execute("SELECT task_id, query, LENGTH(response), date, model FROM task_history ORDER BY id DESC LIMIT 3")
+        last_h = [{"task_id": r[0], "query": (r[1] or "")[:50], "resp_len": r[2], "date": r[3]} for r in cur.fetchall()]
+        cur.execute("SELECT task_id, agent_id, input_tokens, output_tokens, cost_usd FROM telemetry ORDER BY id DESC LIMIT 5")
+        last_t = [{"task_id": r[0], "agent": r[1], "in": r[2], "out": r[3], "cost": r[4]} for r in cur.fetchall()]
+        conn.close()
+        return {"db_path": DB_PATH, "counts": counts,
+                "task_history_cols": cols_h, "telemetry_cols": cols_t,
+                "last_history": last_h, "last_telemetry": last_t}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/session/clear")
+async def clear_session():
+    """Vymaže SESSION_HISTORY - LLM zapomene kontext konverzace."""
+    global SESSION_HISTORY
+    SESSION_HISTORY = []
+    _save_session_history()
+    return {"status": "ok", "message": "Session vymazána."}
+
+@app.get("/api/session/info")
+async def session_info():
+    """Info o aktuální session."""
+    return {
+        "messages": len(SESSION_HISTORY),
+        "max": MAX_HISTORY * 2,
+        "preview": [
+            {"role": "human" if isinstance(m, HumanMessage) else "ai",
+             "content": (m.content[:80] + "...") if len(str(m.content)) > 80 else m.content}
+            for m in SESSION_HISTORY[-4:]
+        ]
+    }
+    """Debug endpoint - vrátí živý kontext projektu který dostanou agenti."""
     _project_ctx_cache["ts"] = 0  # vynutí refresh
     ctx = get_project_context()
     return {"context": ctx, "length": len(ctx)}
 
 # =============================================================================
-# SPUŠTĚNÍ KÓDU — /api/run
+# SPUŠTĚNÍ KÓDU - /api/run
 # =============================================================================
 
 class RunRequest(BaseModel):
@@ -1954,9 +2506,9 @@ class RunRequest(BaseModel):
 async def run_code(request: RunRequest):
     """
     Spustí kód z editoru a vrátí stdout/stderr výstup.
-    Python: temp soubor → python3
-    Bash: temp soubor → bash
-    JavaScript: temp soubor → node
+    Python: temp soubor -> python3
+    Bash: temp soubor -> bash
+    JavaScript: temp soubor -> node
     """
     import tempfile
     lang = request.lang.lower()
@@ -2004,7 +2556,7 @@ async def run_code(request: RunRequest):
         }
 
     except subprocess.TimeoutExpired:
-        return {"status": "error", "output": "⏱️ Timeout — kód běžel déle než 30 sekund.", "duration_ms": 30000}
+        return {"status": "error", "output": " ️ Timeout - kód běžel déle než 30 sekund.", "duration_ms": 30000}
     except FileNotFoundError as e:
         return {"status": "error", "output": f"❌ Interpreter nenalezen: {e}", "duration_ms": 0}
     except Exception as e:
@@ -2026,7 +2578,7 @@ class FeedbackRequest(BaseModel):
 
 @app.post("/api/feedback")
 async def post_feedback(req: FeedbackRequest):
-    """Uloží feedback uživatele (👍/👎) k odpovědi."""
+    """Uloží feedback uživatele (+1/-1) k odpovědi."""
     try:
         conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
         cur.execute('INSERT INTO feedback (task_id,query,response,thumbs,comment,date) VALUES (?,?,?,?,?,?)',
@@ -2037,10 +2589,10 @@ async def post_feedback(req: FeedbackRequest):
                     (req.thumbs, req.task_id))
         conn.commit(); conn.close()
 
-        # Pokud je feedback negativní → Telegram
+        # Pokud je feedback negativní -> Telegram
         if req.thumbs == -1:
             await telegram_notify(
-                f"👎 *Negativní feedback*\n"
+                f"-1 *Negativní feedback*\n"
                 f"_{req.query[:100]}_\n"
                 f"{('💬 ' + req.comment) if req.comment else ''}"
             )
@@ -2146,7 +2698,7 @@ async def test_telegram():
     await telegram_notify(
         "🤖 *Engineering AI System v9.2*\n"
         "✅ Telegram notifikace fungují!\n"
-        f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        f"  {datetime.now().strftime('%d.%m.%Y %H:%M')}"
     )
     return {"status": "ok", "message": "Testovací zpráva odeslána."}
 

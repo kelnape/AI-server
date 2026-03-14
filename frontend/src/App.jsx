@@ -114,6 +114,138 @@ const CodeEditor = ({ code, lang = "python", isEditing = false, onChange }) => {
 // =============================================================================
 // SERVER METRIKY
 // =============================================================================
+// =============================================================================
+// ACTIVITY BAR — tenký živý řádek s aktivitou agentů
+// =============================================================================
+const ActivityBar = ({ isProcessing, activeAgent, liveWorkspace, projectPlan, currentPlanStep }) => {
+  const [dots, setDots] = useState(0);
+  const [shownSteps, setShownSteps] = useState([]);
+
+  // Animace teček
+  useEffect(() => {
+    if (!isProcessing) return;
+    const i = setInterval(() => setDots(d => (d + 1) % 4), 400);
+    return () => clearInterval(i);
+  }, [isProcessing]);
+
+  // Akumuluj kroky pro historii
+  useEffect(() => {
+    if (!isProcessing || !activeAgent) return;
+    setShownSteps(prev => {
+      const last = prev[prev.length - 1];
+      if (last?.id === activeAgent) return prev;
+      const agent = AGENTS.find(a => a.id === activeAgent);
+      if (!agent) return prev;
+      return [...prev.slice(-6), { id: activeAgent, label: agent.label, time: Date.now() }];
+    });
+  }, [activeAgent, isProcessing]);
+
+  // Reset při novém úkolu
+  useEffect(() => {
+    if (!isProcessing) return;
+    setShownSteps([]);
+  }, [isProcessing && shownSteps.length === 0]);
+
+  const lastBlock = liveWorkspace[liveWorkspace.length - 1];
+  const currentPlanItem = projectPlan[currentPlanStep];
+  const agentHex = activeAgent ? (AGENT_COLORS_HEX[activeAgent] || '#3b82f6') : '#3b82f6';
+
+  if (!isProcessing && shownSteps.length === 0) return null;
+
+  return (
+    <div className="w-full shrink-0 overflow-hidden" style={{
+      borderBottom: '1px solid var(--border)',
+      background: 'var(--bg-toolbar)',
+      minHeight: '28px',
+    }}>
+      <div className="px-4 flex items-center gap-3 h-7 overflow-hidden">
+
+        {isProcessing ? (
+          <>
+            {/* Pulzující ikona */}
+            <div className="shrink-0 flex items-center gap-1.5">
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: agentHex,
+                boxShadow: `0 0 8px ${agentHex}`,
+                animation: 'pulse 1s infinite',
+              }}/>
+              <span style={{
+                fontSize: 9, fontWeight: 900, letterSpacing: '0.12em',
+                textTransform: 'uppercase', color: agentHex,
+              }}>
+                {AGENTS.find(a => a.id === activeAgent)?.label || 'Systém'}
+              </span>
+              <span style={{fontSize: 9, color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: 12}}>
+                {'·'.repeat(dots)}
+              </span>
+            </div>
+
+            {/* Separator */}
+            <div style={{width: 1, height: 12, background: 'var(--border)', flexShrink: 0}}/>
+
+            {/* Aktuální krok plánu */}
+            {currentPlanItem && (
+              <span style={{fontSize: 10, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280}}>
+                {currentPlanItem}
+              </span>
+            )}
+
+            {/* Poslední live výstup — oříznutý */}
+            {lastBlock && !currentPlanItem && (
+              <span style={{fontSize: 10, fontFamily: 'monospace', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 400}}>
+                {lastBlock.content.split('\n').find(l => l.trim().length > 10)?.trim().slice(0, 80) || ''}
+              </span>
+            )}
+
+            {/* Historie agentů vpravo */}
+            <div className="ml-auto flex items-center gap-1.5 shrink-0">
+              {shownSteps.map((s, i) => {
+                const hex = AGENT_COLORS_HEX[s.id] || '#64748b';
+                const isLast = i === shownSteps.length - 1;
+                return (
+                  <span key={i} style={{
+                    fontSize: 8, fontWeight: 900, letterSpacing: '0.08em',
+                    textTransform: 'uppercase', padding: '1px 6px',
+                    borderRadius: 6, border: `1px solid ${hex}${isLast ? '80' : '30'}`,
+                    background: isLast ? `${hex}20` : 'transparent',
+                    color: isLast ? hex : `${hex}60`,
+                    transition: 'all 0.3s',
+                  }}>{s.label}</span>
+                );
+              })}
+              {shownSteps.length > 1 && (
+                <span style={{fontSize: 8, color: 'var(--text-muted)', fontFamily: 'monospace'}}>→</span>
+              )}
+            </div>
+          </>
+        ) : (
+          /* Dokončeno */
+          <div className="flex items-center gap-2 w-full">
+            <div style={{width: 6, height: 6, borderRadius: '50%', background: '#4ade80', flexShrink: 0}}/>
+            <span style={{fontSize: 9, fontWeight: 900, letterSpacing: '0.10em', textTransform: 'uppercase', color: '#4ade80'}}>
+              Dokončeno
+            </span>
+            <div style={{width: 1, height: 12, background: 'var(--border)', flexShrink: 0, margin: '0 4px'}}/>
+            <div className="flex items-center gap-1.5">
+              {shownSteps.map((s, i) => {
+                const hex = AGENT_COLORS_HEX[s.id] || '#64748b';
+                return (
+                  <span key={i} style={{
+                    fontSize: 8, fontWeight: 700, letterSpacing: '0.07em',
+                    textTransform: 'uppercase', padding: '1px 5px',
+                    borderRadius: 5, color: `${hex}80`,
+                  }}>{s.label}</span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const ServerMetrics = () => {
   const [metrics, setMetrics] = useState({ cpu:"...", ram:"...", temp:"...", docker:"...", uptime:"..." });
   const [online, setOnline] = useState(false);
@@ -134,7 +266,7 @@ const ServerMetrics = () => {
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2 border-b backdrop-blur-sm z-10 relative"
+    <div className="w-full px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2 border-b backdrop-blur-sm z-10 relative"
          style={{borderColor:'var(--border)', backgroundColor:'var(--bg-toolbar)'}}>
       {/* SERVER badge */}
       <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg font-black" style={{background:'var(--bg-hover)'}}>
@@ -536,48 +668,76 @@ const AGENT_COLORS_HEX = {
   TESTER:'#4ade80', KODER:'#f472b6', REFLEKTOR:'#c084fc', FINALIZER:'#34d399',
 };
 
-const AgentVisualizer = ({ activeAgent }) => (
-  <div className="flex flex-wrap gap-1.5 p-3 rounded-2xl border" style={{background:'var(--bg-card)', borderColor:'var(--border)'}}>
-    {AGENTS.map(({id, label, icon:Icon}) => {
-      const isActive = activeAgent === id;
-      const hex = AGENT_COLORS_HEX[id] || '#64748b';
-      return (
-        <div key={id}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all duration-500 ${isActive?'scale-110':''}`}
-          style={{
-            background: isActive ? `${hex}22` : 'var(--bg-hover)',
-            borderColor: isActive ? `${hex}70` : 'var(--border)',
-            boxShadow: isActive ? `0 0 14px ${hex}45` : 'none',
-          }}>
-          <Icon size={12} style={{color: isActive ? hex : 'var(--text-muted)'}}
-            className={isActive?'animate-pulse':''}/>
-          <span className="text-[9px] font-black uppercase tracking-widest hidden sm:block"
-            style={{color: isActive ? hex : 'var(--text-secondary)'}}>
-            {label}
-          </span>
-        </div>
-      );
-    })}
-  </div>
-);
+const AgentVisualizer = ({ activeAgent }) => {
+  const activeRef = useRef(null);
+  useEffect(() => {
+    if (activeRef.current) {
+      activeRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [activeAgent]);
+
+  return (
+    <div className="flex flex-wrap gap-1.5 p-3 rounded-2xl border" style={{background:'var(--bg-card)', borderColor:'var(--border)'}}>
+      {AGENTS.map(({id, label, icon:Icon}) => {
+        const isActive = activeAgent === id;
+        const hex = AGENT_COLORS_HEX[id] || '#64748b';
+        return (
+          <div key={id}
+            ref={isActive ? activeRef : null}
+            style={{
+              display:'flex', alignItems:'center', gap:'6px',
+              padding:'4px 10px', borderRadius:'10px',
+              border: `1px solid ${isActive ? hex+'90' : 'var(--border)'}`,
+              background: isActive ? `${hex}25` : 'var(--bg-hover)',
+              boxShadow: isActive ? `0 0 16px ${hex}50` : 'none',
+              transform: isActive ? 'scale(1.1)' : 'scale(1)',
+              transition: 'all 0.3s ease',
+              color: isActive ? hex : 'var(--text-secondary)',
+            }}>
+            <Icon size={12} style={{color: isActive ? hex : 'var(--text-muted)', transition:'color 0.3s'}}
+              className={isActive ? 'animate-pulse' : ''}/>
+            <span style={{
+              fontSize:'9px', fontWeight:900,
+              letterSpacing:'0.07em', textTransform:'uppercase',
+              color: isActive ? hex : 'var(--text-secondary)',
+              transition: 'color 0.3s',
+            }}>{label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 // =============================================================================
 // KANBAN PLÁNOVAČ
 // =============================================================================
 const ProjectPlanner = ({ plan, currentStep }) => {
+  const activeStepRef = useRef(null);
+  useEffect(() => {
+    if (activeStepRef.current) {
+      activeStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [currentStep]);
+
   if (!plan?.length) return null;
   return (
-    <div className="theme-card-bg p-4 rounded-2xl border theme-border-cls animate-in fade-in duration-500">
-      <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400 mb-4 flex items-center gap-2"><ListChecks size={13}/> Operační Plán</h3>
-      <div className="space-y-2.5">
+    <div className="shrink-0 theme-card-bg rounded-2xl border theme-border-cls animate-in fade-in duration-500" style={{maxHeight:'180px', overflow:'hidden', display:'flex', flexDirection:'column'}}>
+      <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400 px-4 pt-3 pb-2 flex items-center gap-2 shrink-0"><ListChecks size={13}/> Operační Plán</h3>
+      <div className="overflow-y-auto custom-scrollbar px-4 pb-3 space-y-2">
         {plan.map((step, idx) => (
-          <div key={idx} className={`flex items-start gap-3 text-xs transition-all duration-300 ${idx<currentStep?'opacity-30':idx===currentStep?'translate-x-1':'opacity-50'}`}>
+          <div key={idx}
+            ref={idx === currentStep ? activeStepRef : null}
+            className={`flex items-start gap-3 text-xs transition-all duration-300 ${idx<currentStep?'opacity-30':idx===currentStep?'translate-x-1':'opacity-50'}`}>
             <div className="mt-0.5 shrink-0">
               {idx<currentStep ? <Check size={12} className="text-green-500"/>
                : idx===currentStep ? <div className="relative flex h-4 w-4 items-center justify-center"><div className="animate-ping absolute h-full w-full rounded-full bg-blue-400 opacity-75"/><div className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"/></div>
                : <div className="h-4 w-4 border theme-border-cls rounded-full flex items-center justify-center text-[8px] font-mono">{idx+1}</div>}
             </div>
-            <span className={idx===currentStep?'text-white font-bold':'text-gray-400'}>{step}</span>
+            <span className={idx===currentStep?'font-bold':''}
+              style={{color: idx===currentStep ? 'var(--text-primary)' : 'var(--text-muted)'}}>
+              {step}
+            </span>
           </div>
         ))}
       </div>
@@ -1123,6 +1283,7 @@ const QueueDrawer = ({ isOpen, onClose, onAddTask }) => {
 const TelemetryDrawer = ({ isOpen, onClose }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [selectedTask, setSelectedTask] = useState(0);
   const [clearing, setClearing] = useState(false);
   const canvasRef = useRef(null);
@@ -1130,10 +1291,19 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
       const r = await apiFetch('/api/telemetry?limit=10');
-      if (r.ok) setData(await r.json());
-    } catch {}
+      if (r.ok) {
+        const json = await r.json();
+        setData(json);
+      } else {
+        const err = await r.json().catch(() => ({}));
+        setError(`API chyba ${r.status}: ${err.detail || r.statusText}`);
+      }
+    } catch(e) {
+      setError(`Síťová chyba: ${e.message}`);
+    }
     setLoading(false);
   };
 
@@ -1267,12 +1437,22 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
               <div className="w-4 h-4 border-2 border-gray-700 border-t-blue-500 rounded-full animate-spin"/>
               <span className="text-xs font-mono">Načítám data...</span>
             </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
+              <div className="p-4 bg-red-500/10 rounded-2xl"><BarChart2 size={28} className="text-red-400"/></div>
+              <div>
+                <p className="text-sm font-bold text-red-400">Chyba načítání</p>
+                <p className="text-[10px] text-red-300/60 mt-1 font-mono">{error}</p>
+                <button onClick={load} className="mt-3 px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-[10px] font-black">↺ Zkusit znovu</button>
+              </div>
+            </div>
           ) : !data?.tasks?.length ? (
             <div className="flex flex-col items-center justify-center h-48 gap-4 text-center">
               <div className="p-4 bg-white/5 rounded-2xl"><BarChart2 size={28} className="text-gray-700"/></div>
               <div>
                 <p className="text-sm font-bold theme-text-sm-cls">Žádná telemetrie</p>
                 <p className="text-[10px] text-gray-700 mt-1">Data se začnou shromažďovat<br/>od příštího úkolu</p>
+                <button onClick={load} className="mt-3 px-3 py-1.5 bg-blue-500/10 theme-text-sm-cls rounded-lg text-[10px]">↺ Obnovit</button>
               </div>
             </div>
           ) : task ? (
@@ -1506,8 +1686,10 @@ export default function App() {
     try { return localStorage.getItem('theme') !== 'light'; } catch { return true; }
   });
   const [isEditing, setIsEditing] = useState(false);
-  const [runOutput, setRunOutput] = useState(null); // {status, output, duration_ms}
+  const [runOutput, setRunOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [liveWorkspace, setLiveWorkspace] = useState([]);
+  const liveEndRef = useRef(null);
 
   useEffect(() => {
     try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch {}
@@ -1534,6 +1716,12 @@ export default function App() {
   const clearSession = () => {
     try { localStorage.removeItem('eas_chat_session'); } catch {}
     setChatMessages([{id:0, role:'system', content:'Session vymazána — Inženýrský systém v9.2'}]);
+    setProjectPlan([]);
+    setCurrentPlanStep(-1);
+    setLiveWorkspace([]);
+    setActiveAgent(null);
+    // Vymaž i backend kontext
+    apiFetch('/api/session/clear', { method: 'POST' }).catch(() => {});
   };
   const [activeAgent, setActiveAgent] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1542,6 +1730,13 @@ export default function App() {
   const [currentPlanStep, setCurrentPlanStep] = useState(-1);
   const [activeModel, setActiveModel] = useState("gpt-4o-mini");
   const [mobileTab, setMobileTab] = useState('chat');
+
+  // Auto-scroll live workspace jen při aktivním zpracování
+  useEffect(() => {
+    if (isProcessing && liveEndRef.current) {
+      liveEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [liveWorkspace, isProcessing]);
   const [chatMessages, setChatMessages] = useState(() => {
     try {
       const saved = localStorage.getItem('eas_chat_session');
@@ -1559,12 +1754,13 @@ export default function App() {
   }, [chatMessages]);
 
   const chatEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const indexInputRef = useRef(null);
   const abortControllerRef = useRef(null);
   const msgIdRef = useRef(1);
-  const lastUserMsgRef = useRef(""); // sleduje poslední dotaz uživatele
+  const lastUserMsgRef = useRef("");
   const nextId = () => msgIdRef.current++;
 
   // Načti Chart.js dynamicky
@@ -1575,7 +1771,11 @@ export default function App() {
     document.head.appendChild(s);
   }, []);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [chatMessages, isProcessing]);
+  // Scroll pouze uvnitř chat containeru — ne celá stránka
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatMessages, isProcessing]);
 
   useEffect(() => {
     apiFetch('/api/history').then(r=>r.json()).then(setTaskHistory).catch(()=>{});
@@ -1683,6 +1883,7 @@ export default function App() {
     lastUserMsgRef.current = msg;
     setProjectPlan([]); setCurrentPlanStep(-1);
     setIsProcessing(true); setActiveAgent("MANAZER");
+    setLiveWorkspace([]); // reset live log pro nový úkol
     abortControllerRef.current = new AbortController();
     const filesToUpload = attachments.map(a=>({name:a.name,type:a.type,mime:a.mime,data:a.data}));
     setAttachments([]);
@@ -1713,9 +1914,33 @@ export default function App() {
             else if(data.type==='plan_progress'){ setCurrentPlanStep(data.step_index); }
             else if(data.type==='info'){ addMessage({role:'system', content: data.message}); }
             else if(data.type==='files_processed'){ addMessage({role:'system', content: `📎 ${data.summary}`}); }
-            else if(data.type==='progress'){ const id=data.node.toUpperCase(); setActiveAgent(id); if(!agentsSeen.includes(id)){agentsSeen.push(id);const a=AGENTS.find(x=>x.id===id);if(a)addMessage({role:'system',content:`→ ${a.label}`});} }
+            else if(data.type==='agent_output'){
+              const time = new Date().toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+              setLiveWorkspace(prev => [...prev, {
+                node: data.node,
+                content: data.content,
+                lang: data.lang || 'text',
+                time,
+              }]);
+            }
+            else if(data.type==='progress'){
+              const id=data.node.toUpperCase();
+              setActiveAgent(id);
+              if(!agentsSeen.includes(id)){
+                agentsSeen.push(id);
+                const a=AGENTS.find(x=>x.id===id);
+                if(a) addMessage({role:'system',content:`→ ${a.label}`});
+              }
+              // Live workspace — ukaž který agent pracuje
+              if(!['MANAZER','PLANNER','NEXTSTEP','FINALIZER'].includes(id)) {
+                const a = AGENTS.find(x=>x.id===id);
+                setCode(`# ⚙️ ${a?.label || id} pracuje...\n# Čekám na výsledek...`);
+                setCodeLang('python');
+              }
+            }
             else if(data.type==='final'){
               setActiveAgent(null);
+              // liveWorkspace zůstane viditelný pro analýzu — nevypínáme
               addMessage({role:'ai', agent:'FINALIZER', content:data.response,
                           task_id: data.task_id||'', quality: null, qualityReason:''});
               if(data.code){
@@ -1723,15 +1948,44 @@ export default function App() {
                 setIsEditing(false); setRunOutput(null);
                 addMessage({role:'system',content:`💾 Kód (${LANG_LABELS[data.lang]||data.lang}) uložen do editoru`});
                 if(data.lang === 'html') { setShowPreview(true); setMobileTab('code'); addMessage({role:'system',content:'👁️ Live preview zapnut — přepni na záložku Kód/Preview'}); }
+              } else {
+                // Bez kódu — vyčisti live workspace placeholder
+                setCode('# Úkol dokončen — bez kódu.\n# Výsledek viz chat vlevo.');
+                setCodeLang('python');
               }
               setTaskHistory(prev=>[{query:msg,response:data.response,code:data.code,date:data.date||new Date().toLocaleTimeString(),model:data.model,hasCode:!!data.code},...prev]);
-            } else if(data.type==='error'){ addMessage({role:'system',content:`❌ ${data.message}`}); }
+              notifyTaskDone(msg, !!data.code, data.lang);
+            } else if(data.type==='error'){
+              setActiveAgent(null);
+              addMessage({role:'system',content:`❌ ${data.message}`});
+              notifyTaskError(data.message);
+            }
           } catch {}
         }
       }
     } catch(e) {
       if(e.name!=='AbortError') addMessage({role:'system',content:'❌ Kritická chyba komunikace.'});
     } finally { setIsProcessing(false); setActiveAgent(null); }
+  };
+
+  // Browser notifikace — požádej o oprávnění při prvním spuštění
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  const notifyTaskDone = (query, hasCode, lang) => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (document.hasFocus()) return; // nezobrazuj pokud je okno aktivní
+    const short = query.length > 60 ? query.slice(0, 60) + '…' : query;
+    const body = hasCode ? `💾 Kód (${LANG_LABELS[lang] || lang}) vygenerován` : '💬 Odpověď připravena';
+    new Notification('✅ Engineering AI — úkol dokončen', {
+      body: `${short}\n${body}`,
+      icon: '/favicon.ico',
+      tag: 'eas-task-done',
+      silent: false,
+    });
   };
 
   // ZIP export
@@ -1786,26 +2040,44 @@ export default function App() {
   // RENDER
   // =============================================================================
   return (
-    <div className="app-root min-h-screen text-slate-200 font-sans selection:bg-blue-500/30 overflow-hidden flex flex-col"
+    <div className="app-root font-sans selection:bg-blue-500/30 flex flex-col"
          data-theme={isDark ? 'dark' : 'light'}
-         style={{backgroundColor: 'var(--bg-page)', color: 'var(--text-primary)'}}>
+         style={{
+           backgroundColor: 'var(--bg-page)',
+           color: 'var(--text-primary)',
+           height: '100vh',
+           maxHeight: '100vh',
+           overflow: 'hidden',
+           position: 'fixed',
+           inset: 0,
+         }}>
       <div className="app-gradient fixed inset-0 pointer-events-none"/>
 
       {/* HEADER */}
-      <header className="relative max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 flex items-center justify-between border-b backdrop-blur-sm z-30 theme-border"
-              style={{borderColor:'var(--border)'}}>
-        <div className="flex items-center gap-3 sm:gap-5">
+      <header className="relative w-full px-4 sm:px-6 py-3 flex items-center justify-between backdrop-blur-xl z-30 shrink-0"
+              style={{
+                background: 'linear-gradient(180deg, var(--bg-card) 0%, transparent 100%)',
+                borderBottom: '1px solid var(--border)',
+              }}>
+        <div className="flex items-center gap-3 sm:gap-4">
           <div className="relative">
-            <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl blur opacity-25"/>
-            <div className="relative p-2.5 rounded-xl border shadow-xl theme-card" style={{borderColor:'var(--border)'}}><User size={22} className="text-blue-400"/></div>
+            <div className="absolute -inset-0.5 bg-gradient-to-br from-blue-500 to-violet-600 rounded-xl opacity-60 blur-sm"/>
+            <div className="relative p-2 rounded-xl" style={{background:'var(--bg-card)', border:'1px solid var(--border-accent)'}}>
+              <User size={20} className="text-blue-400"/>
+            </div>
           </div>
           <div>
-            <h1 className="text-base sm:text-lg font-black italic tracking-tight uppercase leading-none mb-0.5 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-400">Engineering AI System</h1>
-            <p className="text-[9px] text-blue-500 font-mono tracking-[0.3em] uppercase font-bold">Authenticated: Kelnape</p>
+            <h1 className="text-sm font-black italic tracking-tight uppercase leading-none" style={{
+              background: 'linear-gradient(135deg, #f1f5f9 0%, #94a3b8 100%)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
+            }}>Engineering AI System</h1>
+            <p className="text-[9px] font-mono tracking-[0.3em] uppercase mt-0.5" style={{color:'var(--accent)'}}>
+              Authenticated: Kelnape
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Model selektor */}
           <ModelSelector activeModel={activeModel} onSelect={handleModelSelect}/>
           {/* Editor promptů */}
@@ -1866,6 +2138,15 @@ export default function App() {
       <ServerMetrics/>
       <SysAdminAlerts alerts={sysAlerts} onResolve={executeTask}/>
 
+      {/* ACTIVITY BAR — tenký řádek s live přemýšlením agentů */}
+      <ActivityBar
+        isProcessing={isProcessing}
+        activeAgent={activeAgent}
+        liveWorkspace={liveWorkspace}
+        projectPlan={projectPlan}
+        currentPlanStep={currentPlanStep}
+      />
+
       {/* MODÁLY & DRAWERY */}
       <PromptEditor isOpen={isPromptEditorOpen} onClose={()=>setIsPromptEditorOpen(false)}/>
       <GitDrawer isOpen={isGitOpen} onClose={()=>setIsGitOpen(false)}/>
@@ -1909,16 +2190,20 @@ export default function App() {
       </div>
 
       {/* HLAVNÍ OBSAH */}
-      <main className="relative flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 grid lg:grid-cols-[2fr_3fr] gap-6 lg:gap-8 overflow-hidden" style={{height:'calc(100vh - 160px)'}}>
+      <main className="relative flex-1 min-h-0 w-full p-3 sm:p-4 lg:p-5 grid lg:grid-cols-[2fr_3fr] gap-4 lg:gap-5 overflow-hidden">
 
         {/* LEVÝ SLOUPEC */}
-        <div className={`flex flex-col gap-3 overflow-hidden h-full ${mobileTab!=='chat'?'hidden lg:flex':'flex'}`}>
-          <AgentVisualizer activeAgent={activeAgent}/>
+        <div className={`flex flex-col gap-2 overflow-hidden h-full ${mobileTab!=='chat'?'hidden lg:flex':'flex'}`}>
+          {/* AgentVisualizer — fixní výška, neroztahuje se */}
+          <div className="shrink-0">
+            <AgentVisualizer activeAgent={activeAgent}/>
+          </div>
+          {/* ProjectPlanner — max 180px */}
           <ProjectPlanner plan={projectPlan} currentStep={currentPlanStep}/>
 
-          {/* CHAT */}
-          <div className="flex-1 theme-card border rounded-[2rem] overflow-hidden flex flex-col shadow-2xl" style={{borderColor:'var(--border)'}}>
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+          {/* CHAT — bere zbývající prostor, min-h-0 zabrání přetečení */}
+          <div className="flex-1 min-h-0 theme-card border rounded-[2rem] overflow-hidden flex flex-col shadow-2xl" style={{borderColor:'var(--border)'}}>
+            <div ref={chatContainerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-3">
               {chatMessages.map(msg=>(
                 <ChatMessage
                   key={msg.id}
@@ -1933,9 +2218,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* PŘÍLOHY */}
+          {/* PŘÍLOHY — shrink-0 aby nepřekrývaly input */}
           {attachments.length>0 && (
-            <div className="flex flex-wrap gap-2 px-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="shrink-0 flex flex-wrap gap-2 px-1">
               {attachments.map(file=>{
                 const isPdf = file.mime==='application/pdf' || file.name.endsWith('.pdf');
                 const isImg = file.type==='image';
@@ -1959,7 +2244,6 @@ export default function App() {
                   </div>
                 );
               })}
-              {/* Tlačítko rychlé analýzy */}
               <button
                 onClick={async () => {
                   if (attachments.length === 0 || isProcessing) return;
@@ -1979,11 +2263,8 @@ export default function App() {
                         if(!line.trim()) continue;
                         try {
                           const d = JSON.parse(line);
-                          if(d.type==='analysis_complete') {
-                            addMessage({role:'ai', agent:'EXPERT', content:d.result});
-                          } else if(d.type==='error') {
-                            addMessage({role:'system', content:`❌ ${d.message}`});
-                          }
+                          if(d.type==='analysis_complete') addMessage({role:'ai', agent:'EXPERT', content:d.result});
+                          else if(d.type==='error') addMessage({role:'system', content:`❌ ${d.message}`});
                         } catch {}
                       }
                     }
@@ -1998,8 +2279,8 @@ export default function App() {
             </div>
           )}
 
-          {/* INPUT */}
-          <div className="relative group shrink-0">
+          {/* INPUT — vždy dole, shrink-0 */}
+          <div className="shrink-0 relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 rounded-3xl blur opacity-0 group-hover:opacity-100 transition duration-500"/>
             <div className="relative flex items-center theme-card border rounded-[1.5rem] shadow-2xl overflow-hidden" style={{borderColor:'var(--border)'}}>
               <div className="absolute left-4 flex items-center gap-1">
@@ -2025,7 +2306,7 @@ export default function App() {
         </div>
 
         {/* PRAVÝ SLOUPEC — EDITOR + PREVIEW */}
-        <div className={`flex flex-col theme-card border rounded-[2rem] overflow-hidden shadow-2xl h-full ${mobileTab!=='code'?'hidden lg:flex':'flex'}`} style={{borderColor:'var(--border)'}}>
+        <div className={`flex flex-col theme-card border rounded-[2rem] overflow-hidden shadow-2xl h-full min-h-0 ${mobileTab!=='code'?'hidden lg:flex':'flex'}`} style={{borderColor:'var(--border)'}}>
           {/* Toolbar */}
           <div className="px-5 py-3.5 theme-toolbar flex items-center justify-between border-b shrink-0" style={{borderColor:'var(--border)'}}>
             <div className="flex items-center gap-2.5">
@@ -2081,6 +2362,10 @@ export default function App() {
               <button onClick={handleCopy} className="p-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl" title="Kopírovat">
                 {isCopied?<Check size={14} className="text-green-400"/>:<Copy size={14}/>}
               </button>
+              <button onClick={()=>{ setCode(''); setCodeLang('python'); setRunOutput(null); setIsEditing(false); }}
+                className="p-2 bg-white/5 hover:bg-red-500/20 text-gray-400 hover:text-red-400 rounded-xl" title="Vyčistit workspace">
+                <Trash2 size={14}/>
+              </button>
               <button onClick={()=>{const b=new Blob([code],{type:'text/plain'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=`solution.${codeLang==='python'?'py':codeLang==='bash'?'sh':codeLang}`;a.click();}}
                 className="p-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl" title="Stáhnout soubor">
                 <Download size={14}/>
@@ -2092,8 +2377,75 @@ export default function App() {
             </div>
           </div>
 
-          {/* Obsah: Editor nebo iframe Preview */}
-          {showPreview && codeLang === 'html' ? (
+          {/* Obsah: Live workspace | Editor | iframe Preview */}
+          {liveWorkspace.length > 0 && !showPreview ? (
+            // LIVE LOG — akumulované bloky všech agentů
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+              {/* Live header */}
+              <div className="px-4 py-2 flex items-center gap-3 shrink-0"
+                style={{background:'rgba(59,130,246,0.05)', borderBottom:'1px solid var(--border)'}}>
+                <div className="flex items-center gap-2">
+                  {isProcessing
+                    ? <><div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"/>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">Live log agentů</span>
+                        <div className="flex gap-1 ml-1">
+                          {[0,1,2].map(i=><div key={i} className="w-1 h-1 rounded-full bg-blue-400 opacity-60" style={{animation:`bounce 1.2s ease-in-out ${i*0.2}s infinite`}}/>)}
+                        </div>
+                      </>
+                    : <><div className="w-2 h-2 rounded-full bg-emerald-500"/>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Log dokončen — {liveWorkspace.length} bloků</span>
+                      </>
+                  }
+                </div>
+                {/* Přepnutí na finální kód */}
+                {!isProcessing && code && (
+                  <button onClick={()=>setLiveWorkspace([])}
+                    className="ml-auto text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-all">
+                    → Finální kód
+                  </button>
+                )}
+              </div>
+
+              {/* Scrollovatelný log */}
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                {liveWorkspace.map((block, idx) => {
+                  const agent = AGENTS.find(a => a.id === block.node?.toUpperCase());
+                  const hex = AGENT_COLORS_HEX[block.node?.toUpperCase()] || '#64748b';
+                  return (
+                    <div key={idx} className="border-b" style={{borderColor:'var(--border)'}}>
+                      {/* Agent header */}
+                      <div className="px-4 py-2 flex items-center gap-2.5 sticky top-0"
+                        style={{background:'var(--bg-toolbar)'}}>
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{background: hex}}/>
+                        <span className="text-[9px] font-black uppercase tracking-widest" style={{color: hex}}>
+                          {agent?.label || block.node}
+                        </span>
+                        {block.lang && block.lang !== 'text' && (
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{background:`${hex}18`, color: hex}}>
+                            {block.lang}
+                          </span>
+                        )}
+                        <span className="ml-auto text-[8px] font-mono" style={{color:'var(--text-muted)'}}>{block.time}</span>
+                      </div>
+                      {/* Obsah bloku */}
+                      <pre className="px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap"
+                        style={{background:'var(--bg-card)', color:'var(--text-secondary)'}}>
+                        {block.content}
+                      </pre>
+                    </div>
+                  );
+                })}
+                {/* Kurzor při aktivním zpracování */}
+                {isProcessing && (
+                  <div className="px-4 py-3 flex items-center gap-2" style={{color:'var(--text-muted)'}}>
+                    <span className="inline-block w-2 h-4 rounded-sm animate-pulse" style={{background:'var(--accent)'}}/>
+                    <span className="text-[10px] font-mono">Agent pracuje...</span>
+                  </div>
+                )}
+                <div ref={liveEndRef}/>
+              </div>
+            </div>
+          ) : showPreview && codeLang === 'html' ? (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="px-4 py-2 border-b flex items-center gap-2 shrink-0" style={{background:'rgba(16,185,129,0.1)', borderColor:'rgba(16,185,129,0.15)'}}>
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
@@ -2158,6 +2510,45 @@ export default function App() {
         .app-root { font-size: 15px; }
         .app-root .text-sm { font-size: 14px !important; }
         .app-root .text-xs { font-size: 12px !important; }
+
+        /* Premium micro-interactions */
+        button { transition: all 0.15s ease !important; }
+        button:active { transform: scale(0.96) !important; }
+        .animate-in { animation: fadeSlideIn 0.2s ease forwards; }
+        @keyframes fadeSlideIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Glow efekt na aktivním agentovi */
+        .agent-active-glow {
+          box-shadow: 0 0 16px var(--agent-color, rgba(59,130,246,0.4)) !important;
+        }
+
+        /* Chat bubliny — vylepšené */
+        .msg-ai {
+          background: var(--bg-msg-ai) !important;
+          border-color: var(--border) !important;
+          backdrop-filter: blur(8px);
+        }
+        .msg-usr {
+          background: var(--bg-msg-usr) !important;
+          border-color: var(--border-accent) !important;
+        }
+
+        /* Input focus ring */
+        input:focus, textarea:focus {
+          box-shadow: 0 0 0 2px var(--accent-glow) !important;
+          border-color: var(--border-accent) !important;
+          outline: none !important;
+        }
+
+        /* Karty hover */
+        .theme-card:hover {
+          box-shadow: var(--shadow-card), var(--shadow-glow) !important;
+          border-color: var(--border-accent) !important;
+          transition: all 0.2s ease !important;
+        }
 
         /* Bulk-replaced theme classes */
         .theme-card-bg   { background-color: var(--bg-card) !important; }
@@ -2253,44 +2644,56 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.05);border-radius:10px}
         .custom-scrollbar::-webkit-scrollbar-thumb:hover{background:rgba(59,130,246,0.3)}
 
-        /* ── TMAVÝ REŽIM (výchozí) ── */
+        /* ── TMAVÝ REŽIM — Premium Dark Dashboard ── */
         :root {
-          --bg-page:    #070b15;
-          --bg-card:    #0a0f1d;
-          --bg-toolbar: #0d1426;
-          --bg-input:   rgba(0,0,0,0.3);
-          --bg-hover:   rgba(255,255,255,0.05);
-          --bg-msg-ai:  rgba(30,40,70,0.5);
-          --bg-msg-usr: rgba(59,130,246,0.12);
-          --border:     rgba(255,255,255,0.08);
+          --bg-page:    #060912;
+          --bg-card:    #0c1120;
+          --bg-card-2:  #101828;
+          --bg-toolbar: #0e1628;
+          --bg-input:   #0a1022;
+          --bg-hover:   rgba(255,255,255,0.04);
+          --bg-msg-ai:  rgba(16,24,48,0.8);
+          --bg-msg-usr: rgba(59,130,246,0.10);
+          --border:     rgba(255,255,255,0.07);
           --border-md:  rgba(255,255,255,0.10);
-          --text-primary:   #e2e8f0;
-          --text-secondary: #94a3b8;
-          --text-muted:     #475569;
-          --text-code:      #93c5fd;
-          --gradient-page:  linear-gradient(135deg, rgba(30,58,138,0.10) 0%, transparent 50%, rgba(88,28,135,0.10) 100%);
-          --shadow-card:    0 25px 50px rgba(0,0,0,0.5);
+          --border-accent: rgba(59,130,246,0.25);
+          --text-primary:   #f1f5f9;
+          --text-secondary: #8b9ab5;
+          --text-muted:     #3d4f6e;
+          --text-code:      #7dd3fc;
+          --accent:         #3b82f6;
+          --accent-glow:    rgba(59,130,246,0.15);
+          --gradient-page:  radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59,130,246,0.08) 0%, transparent 60%);
+          --gradient-card:  linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 100%);
+          --shadow-card:    0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 40px rgba(0,0,0,0.4);
+          --shadow-glow:    0 0 30px rgba(59,130,246,0.12);
           --scrollbar-thumb: rgba(255,255,255,0.05);
         }
 
         /* ── SVĚTLÝ REŽIM ── */
         [data-theme="light"] {
-          --bg-page:    #f0f4ff;
+          --bg-page:    #f4f6fb;
           --bg-card:    #ffffff;
-          --bg-toolbar: #e8eef8;
-          --bg-input:   rgba(255,255,255,0.9);
-          --bg-hover:   rgba(0,0,0,0.04);
-          --bg-msg-ai:  rgba(239,246,255,0.9);
-          --bg-msg-usr: rgba(59,130,246,0.10);
-          --border:     rgba(0,0,0,0.08);
-          --border-md:  rgba(0,0,0,0.12);
+          --bg-card-2:  #f8faff;
+          --bg-toolbar: #eef2f9;
+          --bg-input:   rgba(255,255,255,0.95);
+          --bg-hover:   rgba(0,0,0,0.03);
+          --bg-msg-ai:  rgba(241,245,255,0.9);
+          --bg-msg-usr: rgba(59,130,246,0.08);
+          --border:     rgba(0,0,0,0.07);
+          --border-md:  rgba(0,0,0,0.10);
+          --border-accent: rgba(59,130,246,0.20);
           --text-primary:   #0f172a;
           --text-secondary: #334155;
           --text-muted:     #64748b;
           --text-code:      #1d4ed8;
-          --gradient-page:  linear-gradient(135deg, rgba(219,234,254,0.6) 0%, rgba(255,255,255,0) 50%, rgba(237,233,254,0.4) 100%);
-          --shadow-card:    0 4px 24px rgba(0,0,0,0.10);
-          --scrollbar-thumb: rgba(0,0,0,0.10);
+          --accent:         #2563eb;
+          --accent-glow:    rgba(37,99,235,0.08);
+          --gradient-page:  radial-gradient(ellipse 80% 50% at 50% -20%, rgba(37,99,235,0.06) 0%, transparent 60%);
+          --gradient-card:  linear-gradient(135deg, rgba(255,255,255,0.8) 0%, transparent 100%);
+          --shadow-card:    0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.06);
+          --shadow-glow:    0 0 20px rgba(37,99,235,0.08);
+          --scrollbar-thumb: rgba(0,0,0,0.08);
         }
 
         /* Aplikuj proměnné */
@@ -2302,8 +2705,22 @@ export default function App() {
         .app-root .app-gradient {
           background: var(--gradient-page) !important;
         }
+
+        /* Accent bar nahoře */
+        .app-root::before {
+          content: '';
+          position: fixed;
+          top: 0; left: 0; right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #06b6d4 100%);
+          z-index: 100;
+          opacity: 0.8;
+        }
+
+        /* Karty */
         .theme-card {
-          background-color: var(--bg-card) !important;
+          background: var(--bg-card) !important;
+          background-image: var(--gradient-card) !important;
           border-color: var(--border-md) !important;
           box-shadow: var(--shadow-card) !important;
         }
