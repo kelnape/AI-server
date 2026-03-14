@@ -8,7 +8,8 @@ import {
   ChevronDown, Settings, Trash2, Save, Zap, Sparkles,
   BookOpen, Bookmark, BookmarkCheck, Lightbulb, Clock,
   BarChart2, DollarSign, TrendingUp, AlertTriangle,
-  Monitor, Eye, EyeOff, Package, Wand2, Palette, Layers
+  Monitor, Eye, EyeOff, Package, Wand2, Palette, Layers,
+  Sun, Moon
 } from 'lucide-react';
 
 // =============================================================================
@@ -26,7 +27,7 @@ const highlight = (text, lang = "python") => {
   };
 
   if (lang === "bash") {
-    s = s.replace(/(#[^\n]*)/g, m => save(m,'text-gray-500 italic'));
+    s = s.replace(/(#[^\n]*)/g, m => save(m,'theme-text-sm-cls italic'));
     s = s.replace(/\b(echo|cd|ls|mkdir|rm|cp|mv|cat|grep|find|sudo|apt|pip|git|docker|systemctl|chmod|chown|export|source|if|then|fi|for|do|done|while|case|esac|function|return|exit)\b/g, m => save(m,'text-pink-400 font-bold'));
     s = s.replace(/(\$\w+|\$\{[^}]+\})/g, m => save(m,'text-yellow-300'));
     s = s.replace(/(".*?"|'.*?')/g, m => save(m,'text-green-400'));
@@ -35,7 +36,7 @@ const highlight = (text, lang = "python") => {
   }
 
   if (lang === "html") {
-    s = s.replace(/(<!--[\s\S]*?-->)/g, m => save(m,'text-gray-500 italic'));
+    s = s.replace(/(<!--[\s\S]*?-->)/g, m => save(m,'theme-text-sm-cls italic'));
     s = s.replace(/(&lt;\/?)([\w-]+)/g, (_, lt, tag) => lt + save(tag,'text-pink-400 font-bold'));
     s = s.replace(/([\w-]+)(=)/g, (_, attr, eq) => save(attr,'text-blue-300') + eq);
     s = s.replace(/(".*?"|'.*?')/g, m => save(m,'text-green-400'));
@@ -43,7 +44,7 @@ const highlight = (text, lang = "python") => {
   }
 
   if (lang === "css") {
-    s = s.replace(/(\/\*[\s\S]*?\*\/)/g, m => save(m,'text-gray-500 italic'));
+    s = s.replace(/(\/\*[\s\S]*?\*\/)/g, m => save(m,'theme-text-sm-cls italic'));
     s = s.replace(/([.#]?[\w-]+)(?=\s*\{)/g, m => save(m,'text-yellow-300 font-bold'));
     s = s.replace(/([\w-]+)(?=\s*:)/g, m => save(m,'text-blue-300'));
     s = s.replace(/(".*?"|'.*?'|#[0-9a-fA-F]{3,6}|\d+(?:px|em|rem|%|vh|vw)?)/g, m => save(m,'text-green-400'));
@@ -52,7 +53,7 @@ const highlight = (text, lang = "python") => {
 
   // Python (default)
   s = s.replace(/(&quot;[\s\S]*?&quot;|&#39;[\s\S]*?&#39;|"[^"]*"|'[^']*')/g, m => save(m,'text-green-400'));
-  s = s.replace(/(#[^\n]*)/g, m => save(m,'text-gray-500 italic'));
+  s = s.replace(/(#[^\n]*)/g, m => save(m,'theme-text-sm-cls italic'));
   s = s.replace(/\b(def|class)\s+([a-zA-Z_]\w*)/g, (_,p1,p2) => save(p1,'text-pink-400 font-bold')+' '+save(p2,'text-blue-400 font-bold'));
   s = s.replace(/\b(import|from|return|if|else|elif|for|while|try|except|finally|with|as|pass|break|continue|yield|lambda|global|nonlocal|assert|del|async|await|True|False|None|and|or|not|in|is)\b/g, m => save(m,'text-pink-400 font-bold'));
   s = s.replace(/\b([a-zA-Z_]\w*)(?=\s*\()/g, m => save(m,'text-blue-300'));
@@ -67,7 +68,8 @@ const GIT_REPO_PATH = ''; // zobrazeno v Git drawer footeru — backend ho vypln
 
 const CodeEditor = ({ code, lang = "python" }) => (
   <pre
-    className="flex-1 bg-[#1e1e1e]/50 p-6 font-mono text-[13px] text-blue-100/90 overflow-auto custom-scrollbar whitespace-pre-wrap leading-relaxed m-0 border-0"
+    className="code-editor-bg flex-1 p-6 font-mono overflow-auto custom-scrollbar whitespace-pre-wrap leading-relaxed m-0 border-0"
+    style={{background:'var(--bg-toolbar)', color:'var(--text-code)', fontSize:'14px', lineHeight:'1.7'}}
     dangerouslySetInnerHTML={{ __html: highlight(code, lang) }}
   />
 );
@@ -87,12 +89,13 @@ const ServerMetrics = () => {
   }, []);
   const S = ({icon:Icon, color, val, label}) => (
     <div className="flex items-center gap-1.5">
-      <Icon size={12} className={online ? color : "text-gray-600"} />
-      <span>{label}: <span className={online ? "text-gray-200" : "text-gray-600"}>{val}</span></span>
+      <Icon size={12} className={online ? color : "theme-text-xs-cls"} />
+      <span>{label}: <span className={online ? "theme-text-cls" : "theme-text-xs-cls"}>{val}</span></span>
     </div>
   );
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center gap-3 sm:gap-5 text-[10px] font-mono text-gray-500 uppercase tracking-widest border-b border-white/5 bg-[#070b15]/50 backdrop-blur-sm z-10 relative">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center gap-3 sm:gap-5 text-[10px] font-mono uppercase tracking-widest border-b backdrop-blur-sm z-10 relative theme-border"
+         style={{color:'var(--text-muted)', borderColor:'var(--border)', backgroundColor:'var(--bg-toolbar)'}}>
       <div className="flex items-center gap-2">
         <div className={`w-2 h-2 rounded-full ${online?'bg-green-500 animate-pulse':'bg-red-500'}`} />
         <span className={online?"text-gray-300 font-bold":"text-red-400 font-bold"}>{online?'RPi Node 01':'OFFLINE'}</span>
@@ -102,12 +105,12 @@ const ServerMetrics = () => {
       <S icon={HardDrive}   color="text-purple-400" val={metrics.ram}    label="RAM"/>
       <S icon={Thermometer} color="text-red-400"    val={metrics.temp}   label="Temp"/>
       <div className="hidden sm:flex items-center gap-1.5">
-        <Box size={12} className={online?"text-cyan-400":"text-gray-600"} />
+        <Box size={12} className={online?"text-cyan-400":"theme-text-xs-cls"} />
         <span>Docker: <span className={metrics.docker==="ACTIVE"?"text-cyan-200":"text-red-400"}>{metrics.docker}</span></span>
       </div>
       <div className="hidden md:flex items-center gap-1.5">
-        <Activity size={12} className={online?"text-green-400":"text-gray-600"} />
-        <span>Uptime: <span className={online?"text-green-200":"text-gray-600"}>{metrics.uptime}</span></span>
+        <Activity size={12} className={online?"text-green-400":"theme-text-xs-cls"} />
+        <span>Uptime: <span className={online?"text-green-200":"theme-text-xs-cls"}>{metrics.uptime}</span></span>
       </div>
     </div>
   );
@@ -166,14 +169,14 @@ const ModelSelector = ({ activeModel, onSelect }) => {
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest">
+        className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all text-[10px] font-black uppercase tracking-widest">
         <Icon size={13} className={color}/>
         <span className="hidden sm:block text-gray-300">{current?.label || 'Model'}</span>
-        <ChevronDown size={12} className={`text-gray-500 transition-transform ${open?'rotate-180':''}`}/>
+        <ChevronDown size={12} className={`theme-text-sm-cls transition-transform ${open?'rotate-180':''}`}/>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-56 bg-[#0d1426] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="p-2 text-[9px] font-mono text-gray-600 uppercase tracking-widest px-3 pt-3">Zvol model</div>
+        <div className="absolute right-0 top-full mt-2 w-56 theme-toolbar-bg border theme-border-cls rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="p-2 text-[9px] font-mono theme-text-xs-cls uppercase tracking-widest px-3 pt-3">Zvol model</div>
           {models.map(m => {
             const MIcon = MODEL_ICONS[m.provider] || Zap;
             const mColor = MODEL_COLORS[m.provider] || 'text-gray-400';
@@ -253,25 +256,25 @@ const PromptEditor = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-[#0a0f1d] border border-white/10 rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="theme-card-bg border theme-border-cls rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/5">
+        <div className="flex items-center justify-between px-6 py-5 border-b theme-border-cls">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-500/10 rounded-xl"><Settings size={18} className="text-purple-400"/></div>
             <div>
               <h2 className="text-base font-black uppercase tracking-tight text-white">Editor promptů agentů</h2>
-              <p className="text-[10px] text-gray-500 font-mono mt-0.5">Vlastní instrukce se přidají k systémové identitě</p>
+              <p className="text-[10px] theme-text-sm-cls font-mono mt-0.5">Vlastní instrukce se přidají k systémové identitě</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-xl text-gray-500 hover:text-white"><X size={18}/></button>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-xl theme-text-sm-cls hover:text-white"><X size={18}/></button>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
           {/* Agent seznam */}
-          <div className="w-44 border-r border-white/5 overflow-y-auto custom-scrollbar p-2 shrink-0">
+          <div className="w-44 border-r theme-border-cls overflow-y-auto custom-scrollbar p-2 shrink-0">
             {AGENT_LIST.map(a => (
               <button key={a.id} onClick={() => setSelectedAgent(a.id)}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between gap-2 mb-1 ${selectedAgent===a.id?'bg-purple-500/20 text-purple-300 border border-purple-500/30':'text-gray-500 hover:bg-white/5 hover:text-gray-300'}`}>
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between gap-2 mb-1 ${selectedAgent===a.id?'bg-purple-500/20 text-purple-300 border border-purple-500/30':'theme-text-sm-cls hover:bg-white/5 hover:text-gray-300'}`}>
                 <span>{a.label}</span>
                 {!!prompts[a.id] && <div className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0"/>}
               </button>
@@ -281,11 +284,11 @@ const PromptEditor = ({ isOpen, onClose }) => {
           {/* Editor */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Základní identita (readonly) */}
-            <div className="p-4 border-b border-white/5">
-              <div className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2 flex items-center gap-2">
+            <div className="p-4 border-b theme-border-cls">
+              <div className="text-[9px] font-black uppercase tracking-widest theme-text-xs-cls mb-2 flex items-center gap-2">
                 <Brain size={11}/> Základní systémová identita (sdílená, read-only)
               </div>
-              <pre className="text-[10px] font-mono text-gray-600 bg-black/20 rounded-xl p-3 max-h-24 overflow-y-auto custom-scrollbar whitespace-pre-wrap leading-relaxed">
+              <pre className="text-[10px] font-mono theme-text-xs-cls bg-black/20 rounded-xl p-3 max-h-24 overflow-y-auto custom-scrollbar whitespace-pre-wrap leading-relaxed">
                 {baseIdentity}
               </pre>
             </div>
@@ -307,7 +310,7 @@ const PromptEditor = ({ isOpen, onClose }) => {
                 value={draft}
                 onChange={e=>setDraft(e.target.value)}
                 placeholder={`Přidej vlastní instrukce pro agenta ${AGENT_LIST.find(a=>a.id===selectedAgent)?.label}...\n\nPříklady:\n• "Vždy generuj unit testy ke každému kódu."\n• "Preferuj asyncio a type hints."\n• "Odpovídej ve formátu JSON kdykoli je to možné."`}
-                className="flex-1 bg-black/30 border border-white/8 rounded-2xl p-4 text-sm text-gray-200 font-mono resize-none focus:outline-none focus:border-purple-500/50 placeholder:text-gray-700 leading-relaxed custom-scrollbar"
+                className="flex-1 theme-input-bg border theme-border-cls rounded-2xl p-4 text-sm theme-text-cls font-mono resize-none focus:outline-none focus:border-purple-500/50 theme-placeholder leading-relaxed custom-scrollbar"
               />
               <button onClick={handleSave} disabled={saving}
                 className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${saved?'bg-green-600/20 border border-green-500/30 text-green-400':'bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300'}`}>
@@ -355,18 +358,18 @@ const IntakeModal = ({ isOpen, initialMessage, onConfirm, onSkip }) => {
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-[#0a0f1d] border border-white/10 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="theme-card-bg border theme-border-cls rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
 
         {/* Header */}
-        <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between shrink-0">
+        <div className="px-6 py-5 border-b theme-border-cls flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-rose-500/10 rounded-xl"><Wand2 size={18} className="text-rose-400"/></div>
             <div>
               <h2 className="text-base font-black uppercase tracking-tight text-white">Webový projekt — Intake</h2>
-              <p className="text-[10px] text-gray-500 font-mono mt-0.5">Zadej specifika → Designer dostane přesné instrukce</p>
+              <p className="text-[10px] theme-text-sm-cls font-mono mt-0.5">Zadej specifika → Designer dostane přesné instrukce</p>
             </div>
           </div>
-          <button onClick={onSkip} className="p-2 hover:bg-white/5 rounded-xl text-gray-500 hover:text-white" title="Přeskočit a spustit bez specifikací"><X size={18}/></button>
+          <button onClick={onSkip} className="p-2 hover:bg-white/5 rounded-xl theme-text-sm-cls hover:text-white" title="Přeskočit a spustit bez specifikací"><X size={18}/></button>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
@@ -374,15 +377,15 @@ const IntakeModal = ({ isOpen, initialMessage, onConfirm, onSkip }) => {
           {/* Základní info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-2">Název projektu</label>
+              <label className="text-[9px] font-black uppercase tracking-widest theme-text-sm-cls block mb-2">Název projektu</label>
               <input value={specs.name} onChange={e=>setSpecs(p=>({...p,name:e.target.value}))}
                 placeholder="Např. TechShop, Portfolio..."
-                className="w-full bg-black/30 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-rose-500/40 placeholder:text-gray-700"/>
+                className="w-full theme-input-bg border theme-border-cls rounded-xl px-3 py-2.5 text-sm theme-text-cls focus:outline-none focus:border-rose-500/40 theme-placeholder"/>
             </div>
             <div>
-              <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-2">Jazyk obsahu</label>
+              <label className="text-[9px] font-black uppercase tracking-widest theme-text-sm-cls block mb-2">Jazyk obsahu</label>
               <select value={specs.language} onChange={e=>setSpecs(p=>({...p,language:e.target.value}))}
-                className="w-full bg-black/30 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-rose-500/40">
+                className="w-full theme-input-bg border theme-border-cls rounded-xl px-3 py-2.5 text-sm theme-text-cls focus:outline-none focus:border-rose-500/40">
                 <option value="cs">🇨🇿 Čeština</option>
                 <option value="en">🇬🇧 Angličtina</option>
                 <option value="sk">🇸🇰 Slovenština</option>
@@ -392,15 +395,15 @@ const IntakeModal = ({ isOpen, initialMessage, onConfirm, onSkip }) => {
 
           {/* Styl */}
           <div>
-            <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-3 flex items-center gap-2">
+            <label className="text-[9px] font-black uppercase tracking-widest theme-text-sm-cls block mb-3 flex items-center gap-2">
               <Palette size={11}/> Vizuální styl
             </label>
             <div className="grid grid-cols-5 gap-2">
               {STYLE_OPTIONS.map(s => (
                 <button key={s.id} onClick={()=>setSpecs(p=>({...p,style:s.id}))}
-                  className={`p-2.5 rounded-xl border text-center transition-all ${specs.style===s.id?'bg-rose-500/20 border-rose-500/40 text-rose-300':'bg-white/5 border-white/5 text-gray-500 hover:border-white/20 hover:text-gray-300'}`}>
+                  className={`p-2.5 rounded-xl border text-center transition-all ${specs.style===s.id?'bg-rose-500/20 border-rose-500/40 text-rose-300':'bg-white/5 theme-border-cls theme-text-sm-cls hover:border-white/20 hover:text-gray-300'}`}>
                   <div className="text-[10px] font-black leading-tight">{s.label}</div>
-                  <div className="text-[8px] text-gray-600 mt-0.5 leading-tight">{s.desc}</div>
+                  <div className="text-[8px] theme-text-xs-cls mt-0.5 leading-tight">{s.desc}</div>
                 </button>
               ))}
             </div>
@@ -408,13 +411,13 @@ const IntakeModal = ({ isOpen, initialMessage, onConfirm, onSkip }) => {
 
           {/* Sekce */}
           <div>
-            <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-3 flex items-center gap-2">
+            <label className="text-[9px] font-black uppercase tracking-widest theme-text-sm-cls block mb-3 flex items-center gap-2">
               <Layers size={11}/> Sekce stránky
             </label>
             <div className="flex flex-wrap gap-2">
               {SECTION_OPTIONS.map(s => (
                 <button key={s} onClick={()=>toggleSection(s)}
-                  className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all ${specs.sections.includes(s)?'bg-rose-500/20 border-rose-500/30 text-rose-300':'bg-white/5 border-white/5 text-gray-500 hover:text-gray-300 hover:border-white/20'}`}>
+                  className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all ${specs.sections.includes(s)?'bg-rose-500/20 border-rose-500/30 text-rose-300':'bg-white/5 theme-border-cls theme-text-sm-cls hover:text-gray-300 hover:border-white/20'}`}>
                   {specs.sections.includes(s) ? '✓ ' : ''}{s}
                 </button>
               ))}
@@ -424,32 +427,32 @@ const IntakeModal = ({ isOpen, initialMessage, onConfirm, onSkip }) => {
           {/* Detaily */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-2">Počet produktů (e-shop)</label>
+              <label className="text-[9px] font-black uppercase tracking-widest theme-text-sm-cls block mb-2">Počet produktů (e-shop)</label>
               <input value={specs.products_count} onChange={e=>setSpecs(p=>({...p,products_count:e.target.value}))}
                 placeholder="Např. 12, 50, stovky..."
-                className="w-full bg-black/30 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-rose-500/40 placeholder:text-gray-700"/>
+                className="w-full theme-input-bg border theme-border-cls rounded-xl px-3 py-2.5 text-sm theme-text-cls focus:outline-none focus:border-rose-500/40 theme-placeholder"/>
             </div>
             <div>
-              <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-2">Barvy / Brand (volitelné)</label>
+              <label className="text-[9px] font-black uppercase tracking-widest theme-text-sm-cls block mb-2">Barvy / Brand (volitelné)</label>
               <input value={specs.colors} onChange={e=>setSpecs(p=>({...p,colors:e.target.value}))}
                 placeholder="Např. #ff6b35, modrá, tmavá..."
-                className="w-full bg-black/30 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-rose-500/40 placeholder:text-gray-700"/>
+                className="w-full theme-input-bg border theme-border-cls rounded-xl px-3 py-2.5 text-sm theme-text-cls focus:outline-none focus:border-rose-500/40 theme-placeholder"/>
             </div>
           </div>
 
           <div>
-            <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-2">Specifické požadavky</label>
+            <label className="text-[9px] font-black uppercase tracking-widest theme-text-sm-cls block mb-2">Specifické požadavky</label>
             <textarea value={specs.notes} onChange={e=>setSpecs(p=>({...p,notes:e.target.value}))}
               placeholder="Vše co Designer musí vědět — logo, funkce, speciální sekce..."
               rows={3}
-              className="w-full bg-black/30 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-rose-500/40 placeholder:text-gray-700 resize-none custom-scrollbar"/>
+              className="w-full theme-input-bg border theme-border-cls rounded-xl px-3 py-2.5 text-sm theme-text-cls focus:outline-none focus:border-rose-500/40 theme-placeholder resize-none custom-scrollbar"/>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/5 flex items-center gap-3 shrink-0">
+        <div className="px-6 py-4 border-t theme-border-cls flex items-center gap-3 shrink-0">
           <button onClick={onSkip}
-            className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
+            className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border theme-border-cls text-gray-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
             Přeskočit
           </button>
           <button onClick={()=>onConfirm(specs)}
@@ -482,13 +485,13 @@ const AGENT_COLORS = {
 };
 
 const AgentVisualizer = ({ activeAgent }) => (
-  <div className="flex flex-wrap gap-1.5 p-3 bg-[#0a0f1d] rounded-2xl border border-white/5">
+  <div className="flex flex-wrap gap-1.5 p-3 theme-card-bg rounded-2xl border theme-border-cls">
     {AGENTS.map(({id, label, icon: Icon}) => {
       const isActive = activeAgent === id;
       return (
-        <div key={id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-500 ${isActive?'bg-blue-500/20 border-blue-500/50 shadow-[0_0_12px_rgba(59,130,246,0.3)] scale-105':'bg-white/5 border-white/5 opacity-30 grayscale'}`}>
+        <div key={id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-500 ${isActive?'bg-blue-500/20 border-blue-500/50 shadow-[0_0_12px_rgba(59,130,246,0.3)] scale-105':'bg-white/5 theme-border-cls opacity-30 grayscale'}`}>
           <Icon size={12} className={isActive?"text-blue-400 animate-pulse":"text-gray-400"}/>
-          <span className={`text-[9px] font-black uppercase tracking-widest hidden sm:block ${isActive?"text-blue-300":"text-gray-500"}`}>{label}</span>
+          <span className={`text-[9px] font-black uppercase tracking-widest hidden sm:block ${isActive?"text-blue-300":"theme-text-sm-cls"}`}>{label}</span>
         </div>
       );
     })}
@@ -501,7 +504,7 @@ const AgentVisualizer = ({ activeAgent }) => (
 const ProjectPlanner = ({ plan, currentStep }) => {
   if (!plan?.length) return null;
   return (
-    <div className="bg-[#0a0f1d] p-4 rounded-2xl border border-white/5 animate-in fade-in duration-500">
+    <div className="theme-card-bg p-4 rounded-2xl border theme-border-cls animate-in fade-in duration-500">
       <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400 mb-4 flex items-center gap-2"><ListChecks size={13}/> Operační Plán</h3>
       <div className="space-y-2.5">
         {plan.map((step, idx) => (
@@ -509,7 +512,7 @@ const ProjectPlanner = ({ plan, currentStep }) => {
             <div className="mt-0.5 shrink-0">
               {idx<currentStep ? <Check size={12} className="text-green-500"/>
                : idx===currentStep ? <div className="relative flex h-4 w-4 items-center justify-center"><div className="animate-ping absolute h-full w-full rounded-full bg-blue-400 opacity-75"/><div className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"/></div>
-               : <div className="h-4 w-4 border border-white/10 rounded-full flex items-center justify-center text-[8px] font-mono">{idx+1}</div>}
+               : <div className="h-4 w-4 border theme-border-cls rounded-full flex items-center justify-center text-[8px] font-mono">{idx+1}</div>}
             </div>
             <span className={idx===currentStep?'text-white font-bold':'text-gray-400'}>{step}</span>
           </div>
@@ -533,7 +536,7 @@ const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
   if (isSystem) return (
     <div className="flex items-center gap-3 py-1 px-1 opacity-40">
       <div className="h-px flex-1 bg-white/5"/>
-      <span className="text-[9px] font-mono text-gray-600 uppercase tracking-widest whitespace-nowrap">{msg.content}</span>
+      <span className="text-[9px] font-mono theme-text-xs-cls uppercase tracking-widest whitespace-nowrap">{msg.content}</span>
       <div className="h-px flex-1 bg-white/5"/>
     </div>
   );
@@ -541,8 +544,8 @@ const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
   if (isUser) return (
     <div className="flex justify-end gap-3 animate-in slide-in-from-bottom-2 duration-300">
       <div className="max-w-[85%]">
-        <div className="bg-blue-600/20 border border-blue-500/30 rounded-2xl rounded-br-md px-4 py-3 text-sm text-blue-100/90 leading-relaxed">{msg.content}</div>
-        <div className="text-[9px] text-gray-600 font-mono mt-1 text-right">{msg.time}</div>
+        <div className="msg-usr border border-blue-500/30 rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed" style={{color:'var(--text-primary)'}}>{msg.content}</div>
+        <div className="text-[9px] font-mono mt-1 text-right" style={{color:'var(--text-muted)'}}>{msg.time}</div>
       </div>
       <div className="w-7 h-7 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0 mt-1">
         <User size={13} className="text-blue-400"/>
@@ -561,7 +564,7 @@ const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
 
   return (
     <div className="group flex gap-3 animate-in slide-in-from-bottom-2 duration-300">
-      <div className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shrink-0 mt-1">
+      <div className="w-7 h-7 rounded-full bg-white/5 border theme-border-cls flex items-center justify-center shrink-0 mt-1">
         <AgentIcon size={13} className={agentColor}/>
       </div>
       <div className="max-w-[85%] flex-1">
@@ -581,7 +584,7 @@ const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
                   ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
                   : learnState === 'saving'
                   ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-wait'
-                  : 'opacity-0 group-hover:opacity-100 bg-white/5 border border-white/10 text-gray-500 hover:bg-emerald-500/10 hover:border-emerald-500/20 hover:text-emerald-400'
+                  : 'opacity-0 group-hover:opacity-100 bg-white/5 border theme-border-cls theme-text-sm-cls hover:bg-emerald-500/10 hover:border-emerald-500/20 hover:text-emerald-400'
               }`}
             >
               {learnState === 'saved'
@@ -593,11 +596,11 @@ const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
             </button>
           )}
         </div>
-        <div className="bg-white/5 border border-white/8 rounded-2xl rounded-tl-md px-4 py-3 text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
+        <div className="msg-ai border rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{borderColor:'var(--border)', color:'var(--text-primary)'}}>
           {msg.content}
           {msg.streaming && <span className="inline-block w-1.5 h-4 bg-blue-400 ml-1 animate-pulse rounded-sm"/>}
         </div>
-        {msg.time && <div className="text-[9px] text-gray-600 font-mono mt-1">{msg.time}</div>}
+        {msg.time && <div className="text-[9px] font-mono mt-1" style={{color:'var(--text-muted)'}}>{msg.time}</div>}
       </div>
     </div>
   );
@@ -609,8 +612,8 @@ const ThinkingIndicator = ({ activeAgent }) => {
   const color = AGENT_COLORS[activeAgent] || 'text-blue-400';
   return (
     <div className="flex gap-3 animate-in fade-in duration-300">
-      <div className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shrink-0"><AgentIcon size={13} className={`${color} animate-pulse`}/></div>
-      <div className="bg-white/5 border border-white/8 rounded-2xl rounded-tl-md px-4 py-3 flex items-center gap-2">
+      <div className="w-7 h-7 rounded-full bg-white/5 border theme-border-cls flex items-center justify-center shrink-0"><AgentIcon size={13} className={`${color} animate-pulse`}/></div>
+      <div className="bg-white/5 border theme-border-cls rounded-2xl rounded-tl-md px-4 py-3 flex items-center gap-2">
         <span className={`text-[9px] font-black uppercase tracking-widest ${color}`}>{agentInfo?.label||activeAgent||'Systém'}</span>
         <div className="flex gap-1">
           {[0,1,2].map(i=><div key={i} className={`w-1.5 h-1.5 rounded-full ${color.replace('text-','bg-')} opacity-60`} style={{animation:`bounce 1.2s ease-in-out ${i*0.2}s infinite`}}/>)}
@@ -623,7 +626,7 @@ const ThinkingIndicator = ({ activeAgent }) => {
 // =============================================================================
 // DRAWERY
 // =============================================================================
-const Overlay = ({ onClick }) => <div className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm" onClick={onClick}/>;
+const Overlay = ({ onClick }) => <div className="fixed inset-0 theme-input-bg z-40 backdrop-blur-sm" onClick={onClick}/>;
 
 const LibraryDrawer = ({ isOpen, onClose, onIndex }) => {
   const manuals = [
@@ -635,23 +638,23 @@ const LibraryDrawer = ({ isOpen, onClose, onIndex }) => {
   return (
     <>
       {isOpen && <Overlay onClick={onClose}/>}
-      <div className={`fixed inset-y-0 right-0 w-80 bg-[#0a0f1d] border-l border-white/10 z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)]`}>
+      <div className={`fixed inset-y-0 right-0 w-80 theme-card-bg border-l theme-border-cls z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)]`}>
         <div className="p-6 h-full flex flex-col">
           <div className="flex items-center justify-between mb-7">
             <div className="flex items-center gap-3"><Library className="text-blue-400" size={20}/><h2 className="text-base font-black tracking-tighter uppercase italic text-white">Knihovna</h2></div>
-            <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white"><X size={17}/></button>
+            <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full theme-text-sm-cls hover:text-white"><X size={17}/></button>
           </div>
           <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
             {manuals.map((m,i) => (
-              <div key={i} className="group p-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 hover:border-blue-500/30 transition-all cursor-pointer">
+              <div key={i} className="group p-4 bg-white/5 border theme-border-cls rounded-2xl hover:bg-white/10 hover:border-blue-500/30 transition-all cursor-pointer">
                 <div className="flex items-start gap-3">
                   <FileText size={14} className="text-blue-400 mt-0.5"/>
-                  <div className="flex-1 min-w-0"><h3 className="text-xs font-bold truncate text-gray-300 group-hover:text-white">{m.name}</h3><div className="text-[9px] text-gray-600 font-mono mt-1">{m.size} • {m.date}</div></div>
+                  <div className="flex-1 min-w-0"><h3 className="text-xs font-bold truncate text-gray-300 group-hover:text-white">{m.name}</h3><div className="text-[9px] theme-text-xs-cls font-mono mt-1">{m.size} • {m.date}</div></div>
                 </div>
               </div>
             ))}
           </div>
-          <button onClick={onIndex} className="mt-6 w-full py-3.5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+          <button onClick={onIndex} className="mt-6 w-full py-3.5 bg-white/5 border theme-border-cls rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-2">
             <Database size={13} className="text-cyan-400"/> Nahrát manuál
           </button>
         </div>
@@ -663,18 +666,18 @@ const LibraryDrawer = ({ isOpen, onClose, onIndex }) => {
 const HistoryDrawer = ({ isOpen, onClose, history, onLoadTask }) => (
   <>
     {isOpen && <Overlay onClick={onClose}/>}
-    <div className={`fixed inset-y-0 right-0 w-96 max-w-[90vw] bg-[#0a0f1d] border-l border-white/10 z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)]`}>
+    <div className={`fixed inset-y-0 right-0 w-96 max-w-[90vw] theme-card-bg border-l theme-border-cls z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)]`}>
       <div className="p-6 h-full flex flex-col">
         <div className="flex items-center justify-between mb-7">
           <div className="flex items-center gap-3"><History className="text-blue-400" size={20}/><h2 className="text-base font-black tracking-tighter uppercase italic text-white">Historie</h2></div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white"><X size={17}/></button>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full theme-text-sm-cls hover:text-white"><X size={17}/></button>
         </div>
         <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
-          {history.length===0 ? <p className="text-xs text-gray-600 italic">Zatím žádná historie.</p>
+          {history.length===0 ? <p className="text-xs theme-text-xs-cls italic">Zatím žádná historie.</p>
            : history.map((task,i) => (
-            <div key={i} onClick={()=>{onLoadTask(task);onClose();}} className="group p-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 hover:border-blue-500/30 transition-all cursor-pointer relative">
+            <div key={i} onClick={()=>{onLoadTask(task);onClose();}} className="group p-4 bg-white/5 border theme-border-cls rounded-2xl hover:bg-white/10 hover:border-blue-500/30 transition-all cursor-pointer relative">
               <p className="text-xs font-bold text-gray-300 line-clamp-2 leading-relaxed mb-2 pr-6">{task.query}</p>
-              <div className="flex items-center justify-between text-[9px] font-mono text-gray-600">
+              <div className="flex items-center justify-between text-[9px] font-mono theme-text-xs-cls">
                 <span>{task.date}</span>
                 <div className="flex items-center gap-2">
                   {task.model && <span className="text-purple-400/60">{task.model}</span>}
@@ -749,15 +752,15 @@ const GitDrawer = ({ isOpen, onClose }) => {
   return (
     <>
       {isOpen && <Overlay onClick={onClose}/>}
-      <div className={`fixed inset-y-0 right-0 w-[32rem] max-w-[95vw] bg-[#0a0f1d] border-l border-white/10 z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)] flex flex-col`}>
+      <div className={`fixed inset-y-0 right-0 w-[32rem] max-w-[95vw] theme-card-bg border-l theme-border-cls z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)] flex flex-col`}>
 
         {/* Header */}
-        <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between shrink-0">
+        <div className="px-6 py-5 border-b theme-border-cls flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-orange-500/10 rounded-xl"><GitCommit size={18} className="text-orange-400"/></div>
             <div>
               <h2 className="text-base font-black tracking-tighter uppercase italic text-white">Git</h2>
-              <p className="text-[9px] text-gray-500 font-mono mt-0.5">
+              <p className="text-[9px] theme-text-sm-cls font-mono mt-0.5">
                 {status ? `větev: ${status.branch}  •  ${status.changed.length} změn` : 'Načítám...'}
               </p>
             </div>
@@ -770,13 +773,13 @@ const GitDrawer = ({ isOpen, onClose }) => {
                 {status.clean && <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg">✓ clean</span>}
               </div>
             )}
-            <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white"><X size={17}/></button>
+            <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full theme-text-sm-cls hover:text-white"><X size={17}/></button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-4 space-y-5">
           {loading ? (
-            <div className="flex items-center justify-center h-32 gap-3 text-gray-600">
+            <div className="flex items-center justify-center h-32 gap-3 theme-text-xs-cls">
               <div className="w-4 h-4 border-2 border-gray-700 border-t-orange-500 rounded-full animate-spin"/>
               <span className="text-xs font-mono">Načítám Git status...</span>
             </div>
@@ -784,25 +787,25 @@ const GitDrawer = ({ isOpen, onClose }) => {
             <>
               {/* Remote info */}
               {status.remote && (
-                <div className="bg-white/3 rounded-xl border border-white/5 px-4 py-3 flex items-center gap-3">
-                  <Globe size={13} className="text-gray-600 shrink-0"/>
-                  <span className="text-[10px] font-mono text-gray-500 truncate">{status.remote.split('\t')[1]?.split(' ')[0] || status.remote}</span>
+                <div className="bg-white/3 rounded-xl border theme-border-cls px-4 py-3 flex items-center gap-3">
+                  <Globe size={13} className="theme-text-xs-cls shrink-0"/>
+                  <span className="text-[10px] font-mono theme-text-sm-cls truncate">{status.remote.split('\t')[1]?.split(' ')[0] || status.remote}</span>
                 </div>
               )}
 
               {/* Změněné soubory */}
               <div>
-                <div className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2 flex items-center gap-2">
+                <div className="text-[9px] font-black uppercase tracking-widest theme-text-xs-cls mb-2 flex items-center gap-2">
                   <FileText size={11}/> Změněné soubory ({status.changed.length})
                 </div>
                 {status.changed.length === 0 ? (
-                  <div className="text-[11px] text-gray-600 font-mono text-center py-4">Žádné změny — repozitář je čistý ✓</div>
+                  <div className="text-[11px] theme-text-xs-cls font-mono text-center py-4">Žádné změny — repozitář je čistý ✓</div>
                 ) : (
                   <div className="space-y-1">
                     {status.changed.map((f, i) => {
                       const s = FILE_STATUS_COLORS[f.status] || FILE_STATUS_COLORS.untracked;
                       return (
-                        <div key={i} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border border-white/5 ${s.bg}`}>
+                        <div key={i} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border theme-border-cls ${s.bg}`}>
                           <span className={`text-[9px] font-black w-4 text-center ${s.color}`}>{s.label}</span>
                           <span className="text-[11px] font-mono text-gray-300 truncate">{f.file}</span>
                         </div>
@@ -814,7 +817,7 @@ const GitDrawer = ({ isOpen, onClose }) => {
 
               {/* Commit zpráva + akce */}
               <div className="space-y-2">
-                <div className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2 flex items-center gap-2">
+                <div className="text-[9px] font-black uppercase tracking-widest theme-text-xs-cls mb-2 flex items-center gap-2">
                   <GitCommit size={11}/> Commit & Push
                 </div>
                 <textarea
@@ -822,7 +825,7 @@ const GitDrawer = ({ isOpen, onClose }) => {
                   onChange={e => setCommitMsg(e.target.value)}
                   placeholder={`feat: popis změn\n\nPrázdné = auto zpráva s časem`}
                   rows={3}
-                  className="w-full bg-black/30 border border-white/8 rounded-xl px-3 py-2.5 text-[11px] font-mono text-gray-200 focus:outline-none focus:border-orange-500/40 placeholder:text-gray-700 resize-none custom-scrollbar"
+                  className="w-full theme-input-bg border theme-border-cls rounded-xl px-3 py-2.5 text-[11px] font-mono theme-text-cls focus:outline-none focus:border-orange-500/40 theme-placeholder resize-none custom-scrollbar"
                 />
                 <div className="flex gap-2">
                   <button onClick={handlePull} disabled={pulling || pushing}
@@ -854,12 +857,12 @@ const GitDrawer = ({ isOpen, onClose }) => {
 
               {/* Historie commitů */}
               <div>
-                <div className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2 flex items-center gap-2">
+                <div className="text-[9px] font-black uppercase tracking-widest theme-text-xs-cls mb-2 flex items-center gap-2">
                   <Clock size={11}/> Poslední commity
                 </div>
                 <div className="space-y-1">
                   {status.commits.map((c, i) => (
-                    <div key={i} className="flex items-start gap-2.5 px-3 py-2 bg-white/3 rounded-xl border border-white/5">
+                    <div key={i} className="flex items-start gap-2.5 px-3 py-2 bg-white/3 rounded-xl border theme-border-cls">
                       <div className="w-1.5 h-1.5 rounded-full bg-orange-500/60 mt-1.5 shrink-0"/>
                       <span className="text-[10px] font-mono text-gray-400 leading-relaxed">{c}</span>
                     </div>
@@ -868,12 +871,12 @@ const GitDrawer = ({ isOpen, onClose }) => {
               </div>
             </>
           ) : (
-            <div className="text-center py-12 text-gray-600 text-sm">Git není dostupný nebo repozitář není inicializovaný</div>
+            <div className="text-center py-12 theme-text-xs-cls text-sm">Git není dostupný nebo repozitář není inicializovaný</div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 border-t theme-border-cls flex items-center justify-between shrink-0">
           <button onClick={load} className="text-[9px] font-mono text-orange-500/60 hover:text-orange-400 transition-colors">↻ Obnovit</button>
           <span className="text-[9px] font-mono text-gray-700">{GIT_REPO_PATH || 'SysAdmin: git status, commit, push'}</span>
         </div>
@@ -984,23 +987,23 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
   return (
     <>
       {isOpen && <Overlay onClick={onClose}/>}
-      <div className={`fixed inset-y-0 right-0 w-[32rem] max-w-[95vw] bg-[#0a0f1d] border-l border-white/10 z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)] flex flex-col`}>
+      <div className={`fixed inset-y-0 right-0 w-[32rem] max-w-[95vw] theme-card-bg border-l theme-border-cls z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)] flex flex-col`}>
 
         {/* Header */}
-        <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between shrink-0">
+        <div className="px-6 py-5 border-b theme-border-cls flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/10 rounded-xl"><BarChart2 size={18} className="text-blue-400"/></div>
             <div>
               <h2 className="text-base font-black tracking-tighter uppercase italic text-white">Telemetrie</h2>
-              <p className="text-[9px] text-gray-500 font-mono mt-0.5">Tokeny & cena per agent / úkol</p>
+              <p className="text-[9px] theme-text-sm-cls font-mono mt-0.5">Tokeny & cena per agent / úkol</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white"><X size={17}/></button>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full theme-text-sm-cls hover:text-white"><X size={17}/></button>
         </div>
 
         {/* Celkové součty */}
         {data?.totals && (
-          <div className="px-6 py-4 border-b border-white/5 grid grid-cols-3 gap-3 shrink-0">
+          <div className="px-6 py-4 border-b theme-border-cls grid grid-cols-3 gap-3 shrink-0">
             {[
               { label: 'Celkem vstup', val: data.totals.input_tokens.toLocaleString(), icon: TrendingUp, color: 'text-blue-400' },
               { label: 'Celkem výstup', val: data.totals.output_tokens.toLocaleString(), icon: TrendingUp, color: 'text-purple-400' },
@@ -1010,7 +1013,7 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
               <div key={s.label} className="bg-white/5 rounded-xl p-3 text-center">
                 <s.icon size={14} className={`${s.color} mx-auto mb-1`}/>
                 <div className={`text-sm font-black ${s.color}`}>{s.val}</div>
-                <div className="text-[9px] text-gray-600 font-mono mt-0.5">{s.label}</div>
+                <div className="text-[9px] theme-text-xs-cls font-mono mt-0.5">{s.label}</div>
               </div>
             ))}
           </div>
@@ -1018,12 +1021,12 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
 
         {/* Výběr úkolu */}
         {data?.tasks?.length > 0 && (
-          <div className="px-6 py-3 border-b border-white/5 shrink-0">
-            <div className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2">Výběr úkolu</div>
+          <div className="px-6 py-3 border-b theme-border-cls shrink-0">
+            <div className="text-[9px] font-black uppercase tracking-widest theme-text-xs-cls mb-2">Výběr úkolu</div>
             <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
               {data.tasks.map((t, i) => (
                 <button key={t.task_id} onClick={() => setSelectedTask(i)}
-                  className={`shrink-0 px-3 py-2 rounded-xl text-[9px] font-black transition-all border ${i===selectedTask?'bg-blue-500/20 border-blue-500/40 text-blue-300':'bg-white/5 border-white/5 text-gray-500 hover:text-gray-300'}`}>
+                  className={`shrink-0 px-3 py-2 rounded-xl text-[9px] font-black transition-all border ${i===selectedTask?'bg-blue-500/20 border-blue-500/40 text-blue-300':'bg-white/5 theme-border-cls theme-text-sm-cls hover:text-gray-300'}`}>
                   <div>#{i+1}</div>
                   <div className="text-[8px] font-mono opacity-60 mt-0.5">${t.total_cost.toFixed(4)}</div>
                 </button>
@@ -1034,7 +1037,7 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
 
         <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-4 space-y-4">
           {loading ? (
-            <div className="flex items-center justify-center h-32 gap-3 text-gray-600">
+            <div className="flex items-center justify-center h-32 gap-3 theme-text-xs-cls">
               <div className="w-4 h-4 border-2 border-gray-700 border-t-blue-500 rounded-full animate-spin"/>
               <span className="text-xs font-mono">Načítám data...</span>
             </div>
@@ -1042,15 +1045,15 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
             <div className="flex flex-col items-center justify-center h-48 gap-4 text-center">
               <div className="p-4 bg-white/5 rounded-2xl"><BarChart2 size={28} className="text-gray-700"/></div>
               <div>
-                <p className="text-sm font-bold text-gray-500">Žádná telemetrie</p>
+                <p className="text-sm font-bold theme-text-sm-cls">Žádná telemetrie</p>
                 <p className="text-[10px] text-gray-700 mt-1">Data se začnou shromažďovat<br/>od příštího úkolu</p>
               </div>
             </div>
           ) : task ? (
             <>
               {/* Graf */}
-              <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
-                <div className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-3 flex items-center gap-2">
+              <div className="theme-input-bg rounded-2xl p-4 border theme-border-cls">
+                <div className="text-[9px] font-black uppercase tracking-widest theme-text-xs-cls mb-3 flex items-center gap-2">
                   <BarChart2 size={11}/> Distribuce tokenů — Úkol #{selectedTask+1}
                 </div>
                 <div style={{height: '180px'}}>
@@ -1059,31 +1062,31 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
               </div>
 
               {/* Souhrn úkolu */}
-              <div className="bg-white/3 rounded-2xl border border-white/5 p-4 space-y-1">
+              <div className="bg-white/3 rounded-2xl border theme-border-cls p-4 space-y-1">
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600 font-mono">Model</span>
+                  <span className="theme-text-xs-cls font-mono">Model</span>
                   <span className="text-gray-300 font-bold">{task.model}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600 font-mono">Celkem tokenů</span>
+                  <span className="theme-text-xs-cls font-mono">Celkem tokenů</span>
                   <span className="text-gray-300 font-bold">{(task.total_input+task.total_output).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600 font-mono">Celková cena</span>
+                  <span className="theme-text-xs-cls font-mono">Celková cena</span>
                   <span className={`font-black ${task.total_cost > WARN_USD ? 'text-red-400' : 'text-emerald-400'}`}>
                     ${task.total_cost.toFixed(5)}
                     {task.total_cost > WARN_USD && <AlertTriangle size={10} className="inline ml-1"/>}
                   </span>
                 </div>
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600 font-mono">Celková doba</span>
+                  <span className="theme-text-xs-cls font-mono">Celková doba</span>
                   <span className="text-gray-300 font-bold">{(task.total_ms/1000).toFixed(1)}s</span>
                 </div>
               </div>
 
               {/* Tabulka agentů */}
-              <div className="bg-black/30 rounded-2xl border border-white/5 overflow-hidden">
-                <div className="px-4 py-2 border-b border-white/5 text-[9px] font-black uppercase tracking-widest text-gray-600">
+              <div className="theme-input-bg rounded-2xl border theme-border-cls overflow-hidden">
+                <div className="px-4 py-2 border-b theme-border-cls text-[9px] font-black uppercase tracking-widest theme-text-xs-cls">
                   Detail per agent
                 </div>
                 <div className="divide-y divide-white/5">
@@ -1099,9 +1102,9 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
                           <div className="flex items-center justify-between mb-1.5">
                             <span className="text-[10px] font-black" style={{color}}>{a.agent_id}</span>
                             <div className="flex items-center gap-3 text-[9px] font-mono">
-                              <span className="text-gray-500">{total.toLocaleString()} tok.</span>
+                              <span className="theme-text-sm-cls">{total.toLocaleString()} tok.</span>
                               <span className="text-emerald-400 font-bold">${a.cost_usd.toFixed(5)}</span>
-                              <span className="text-gray-600">{a.duration_ms}ms</span>
+                              <span className="theme-text-xs-cls">{a.duration_ms}ms</span>
                             </div>
                           </div>
                           {/* Progress bar */}
@@ -1120,7 +1123,7 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 border-t theme-border-cls flex items-center justify-between shrink-0">
           <button onClick={load} className="text-[9px] font-mono text-blue-500/60 hover:text-blue-400 transition-colors">↻ Obnovit</button>
           <button onClick={handleClear} disabled={clearing || !data?.tasks?.length}
             className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-red-500/50 hover:text-red-400 disabled:opacity-20 transition-colors">
@@ -1177,7 +1180,7 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
   return (
     <>
       {isOpen && <Overlay onClick={onClose}/>}
-      <div className={`fixed inset-y-0 right-0 w-[28rem] max-w-[95vw] bg-[#0a0f1d] border-l border-white/10 z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)]`}>
+      <div className={`fixed inset-y-0 right-0 w-[28rem] max-w-[95vw] theme-card-bg border-l theme-border-cls z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.5)]`}>
         <div className="p-6 h-full flex flex-col gap-4">
           {/* Header */}
           <div className="flex items-center justify-between">
@@ -1185,10 +1188,10 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
               <div className="p-2 bg-emerald-500/10 rounded-xl"><BookOpen size={18} className="text-emerald-400"/></div>
               <div>
                 <h2 className="text-base font-black tracking-tighter uppercase italic text-white">Trvalá paměť</h2>
-                <p className="text-[9px] text-gray-500 font-mono mt-0.5">{memories.length} záznamů v ChromaDB</p>
+                <p className="text-[9px] theme-text-sm-cls font-mono mt-0.5">{memories.length} záznamů v ChromaDB</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white"><X size={17}/></button>
+            <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full theme-text-sm-cls hover:text-white"><X size={17}/></button>
           </div>
 
           {/* Legenda typů */}
@@ -1203,7 +1206,7 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
           {/* Seznam */}
           <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
             {loading ? (
-              <div className="flex items-center justify-center h-32 gap-3 text-gray-600">
+              <div className="flex items-center justify-center h-32 gap-3 theme-text-xs-cls">
                 <div className="w-4 h-4 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin"/>
                 <span className="text-xs font-mono">Načítám paměť...</span>
               </div>
@@ -1211,7 +1214,7 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
               <div className="flex flex-col items-center justify-center h-48 gap-4 text-center">
                 <div className="p-4 bg-white/5 rounded-2xl"><BookOpen size={28} className="text-gray-700"/></div>
                 <div>
-                  <p className="text-sm font-bold text-gray-500">Paměť je prázdná</p>
+                  <p className="text-sm font-bold theme-text-sm-cls">Paměť je prázdná</p>
                   <p className="text-[10px] text-gray-700 mt-1 leading-relaxed">Najeď na odpověď agenta<br/>a klikni na <span className="text-emerald-500">Zapamatovat</span></p>
                 </div>
               </div>
@@ -1227,13 +1230,13 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
                       <TypeIcon size={10}/> {style.label}
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1 text-[9px] font-mono text-gray-600">
+                      <div className="flex items-center gap-1 text-[9px] font-mono theme-text-xs-cls">
                         <Clock size={9}/> {mem.date ? new Date(mem.date).toLocaleDateString('cs-CZ') : '—'}
                       </div>
                       <button
                         onClick={() => handleDelete(mem.id)}
                         disabled={deleting === mem.id}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 text-gray-600 hover:text-red-400 rounded-lg transition-all"
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 theme-text-xs-cls hover:text-red-400 rounded-lg transition-all"
                       >
                         {deleting === mem.id
                           ? <div className="w-3 h-3 border border-red-400/30 border-t-red-400 rounded-full animate-spin"/>
@@ -1251,7 +1254,7 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
 
           {/* Footer */}
           {memories.length > 0 && (
-            <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[9px] font-mono text-gray-600">
+            <div className="pt-3 border-t theme-border-cls flex items-center justify-between text-[9px] font-mono theme-text-xs-cls">
               <span>ChromaDB · {memories.length} vektorů</span>
               <button onClick={loadMemories} className="text-emerald-500/60 hover:text-emerald-400 transition-colors">↻ Obnovit</button>
             </div>
@@ -1272,6 +1275,13 @@ export default function App() {
   const [isGitOpen, setIsGitOpen] = useState(false);
   const [isTelemetryOpen, setIsTelemetryOpen] = useState(false);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    try { return localStorage.getItem('theme') !== 'light'; } catch { return true; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch {}
+  }, [isDark]);
   const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [pendingMessage, setPendingMessage] = useState('');
@@ -1483,18 +1493,21 @@ export default function App() {
   // RENDER
   // =============================================================================
   return (
-    <div className="min-h-screen bg-[#070b15] text-slate-200 font-sans selection:bg-blue-500/30 overflow-hidden flex flex-col">
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-900/10 via-transparent to-purple-900/10 pointer-events-none"/>
+    <div className="app-root min-h-screen text-slate-200 font-sans selection:bg-blue-500/30 overflow-hidden flex flex-col"
+         data-theme={isDark ? 'dark' : 'light'}
+         style={{backgroundColor: 'var(--bg-page)', color: 'var(--text-primary)'}}>
+      <div className="app-gradient fixed inset-0 pointer-events-none"/>
 
       {/* HEADER */}
-      <header className="relative max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 flex items-center justify-between border-b border-white/5 backdrop-blur-sm z-30">
+      <header className="relative max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 flex items-center justify-between border-b backdrop-blur-sm z-30 theme-border"
+              style={{borderColor:'var(--border)'}}>
         <div className="flex items-center gap-3 sm:gap-5">
           <div className="relative">
             <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl blur opacity-25"/>
-            <div className="relative p-2.5 bg-[#0a0f1d] rounded-xl border border-white/10 shadow-xl"><User size={22} className="text-blue-400"/></div>
+            <div className="relative p-2.5 rounded-xl border shadow-xl theme-card" style={{borderColor:'var(--border)'}}><User size={22} className="text-blue-400"/></div>
           </div>
           <div>
-            <h1 className="text-base sm:text-lg font-black italic tracking-tight uppercase leading-none mb-0.5 bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">Engineering AI System</h1>
+            <h1 className="text-base sm:text-lg font-black italic tracking-tight uppercase leading-none mb-0.5 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-400">Engineering AI System</h1>
             <p className="text-[9px] text-blue-500 font-mono tracking-[0.3em] uppercase font-bold">Authenticated: Kelnape</p>
           </div>
         </div>
@@ -1522,17 +1535,28 @@ export default function App() {
               </span>
             )}
           </button>
-          <button onClick={handleLearn} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all">
+          <button onClick={handleLearn} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all">
             <Brain size={15} className="text-pink-400"/>
             <span className="text-[10px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Naučit se</span>
           </button>
-          <button onClick={()=>setIsHistoryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all">
+          <button onClick={()=>setIsHistoryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all">
             <History size={15} className="text-gray-400"/>
             <span className="text-[10px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Historie</span>
           </button>
-          <button onClick={()=>setIsLibraryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all">
+          <button onClick={()=>setIsLibraryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/5 hover:bg-white/10 border theme-border-cls rounded-xl transition-all">
             <Library size={15} className="text-blue-400"/>
             <span className="text-[10px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Knihovna</span>
+          </button>
+
+          {/* PŘEPÍNAČ TMAVÝ / SVĚTLÝ */}
+          <button
+            onClick={()=>setIsDark(d=>!d)}
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all ${isDark?'bg-slate-700/40 hover:bg-slate-700/60 border-slate-600/30 text-yellow-300':'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-600'}`}
+            title={isDark ? 'Přepnout na světlý režim' : 'Přepnout na tmavý režim'}>
+            {isDark ? <Sun size={15}/> : <Moon size={15}/>}
+            <span className="text-[10px] font-black uppercase tracking-widest hidden lg:block">
+              {isDark ? 'Světlý' : 'Tmavý'}
+            </span>
           </button>
         </div>
       </header>
@@ -1572,10 +1596,10 @@ export default function App() {
 
       {/* MOBILNÍ TABY */}
       <div className="lg:hidden flex max-w-7xl mx-auto w-full px-4 pt-4 gap-2">
-        <button onClick={()=>setMobileTab('chat')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mobileTab==='chat'?'bg-blue-600/20 border border-blue-500/40 text-blue-300':'bg-white/5 border border-white/5 text-gray-500'}`}>
+        <button onClick={()=>setMobileTab('chat')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mobileTab==='chat'?'bg-blue-600/20 border border-blue-500/40 text-blue-300':'bg-white/5 border theme-border-cls theme-text-sm-cls'}`}>
           <MessageSquare size={13}/> Chat
         </button>
-        <button onClick={()=>setMobileTab('code')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mobileTab==='code'?'bg-blue-600/20 border border-blue-500/40 text-blue-300':'bg-white/5 border border-white/5 text-gray-500'}`}>
+        <button onClick={()=>setMobileTab('code')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mobileTab==='code'?'bg-blue-600/20 border border-blue-500/40 text-blue-300':'bg-white/5 border theme-border-cls theme-text-sm-cls'}`}>
           <Code size={13}/> {LANG_LABELS[codeLang]||'Kód'}
           {code.split('\n').length>3 && <span className="bg-blue-500/30 text-blue-300 px-1.5 py-0.5 rounded-md text-[8px]">{code.split('\n').length}L</span>}
         </button>
@@ -1590,7 +1614,7 @@ export default function App() {
           <ProjectPlanner plan={projectPlan} currentStep={currentPlanStep}/>
 
           {/* CHAT */}
-          <div className="flex-1 bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2rem] overflow-hidden flex flex-col shadow-2xl">
+          <div className="flex-1 theme-card border rounded-[2rem] overflow-hidden flex flex-col shadow-2xl" style={{borderColor:'var(--border)'}}>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
               {chatMessages.map(msg=>(
                 <ChatMessage
@@ -1615,10 +1639,10 @@ export default function App() {
                 const badgeColor = isImg ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
                   : isPdf ? 'text-red-400 bg-red-500/10 border-red-500/20'
                   : isCode ? 'text-green-400 bg-green-500/10 border-green-500/20'
-                  : 'text-gray-400 bg-white/5 border-white/10';
+                  : 'text-gray-400 bg-white/5 theme-border-cls';
                 const badgeLabel = isImg ? 'IMG' : isPdf ? 'PDF' : isCode ? 'KÓD' : 'FILE';
                 return (
-                  <div key={file.id} className="group bg-[#0a0f1d] border border-white/10 rounded-xl p-2 flex items-center gap-2 hover:border-white/20 transition-all">
+                  <div key={file.id} className="group theme-card-bg border theme-border-cls rounded-xl p-2 flex items-center gap-2 hover:border-white/20 transition-all">
                     {isImg && file.preview
                       ? <img src={file.preview} alt="" className="w-8 h-8 rounded-lg object-cover"/>
                       : <div className={`w-8 h-8 rounded-lg flex items-center justify-center border text-[9px] font-black ${badgeColor}`}>{badgeLabel}</div>
@@ -1673,13 +1697,14 @@ export default function App() {
           {/* INPUT */}
           <div className="relative group shrink-0">
             <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 rounded-3xl blur opacity-0 group-hover:opacity-100 transition duration-500"/>
-            <div className="relative flex items-center bg-[#0a0f1d] border border-white/10 rounded-[1.5rem] shadow-2xl overflow-hidden">
+            <div className="relative flex items-center theme-card border rounded-[1.5rem] shadow-2xl overflow-hidden" style={{borderColor:'var(--border)'}}>
               <div className="absolute left-4 flex items-center gap-1">
-                <button onClick={()=>imageInputRef.current.click()} className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg"><ImageIcon size={16}/></button>
-                <button onClick={()=>fileInputRef.current.click()} className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg"><Paperclip size={16}/></button>
+                <button onClick={()=>imageInputRef.current.click()} className="p-1.5 hover:bg-blue-500/10 rounded-lg" style={{color:'var(--text-muted)'}}><ImageIcon size={16}/></button>
+                <button onClick={()=>fileInputRef.current.click()} className="p-1.5 hover:bg-blue-500/10 rounded-lg" style={{color:'var(--text-muted)'}}><Paperclip size={16}/></button>
               </div>
               <input
-                className="w-full bg-transparent px-8 py-4 pl-24 pr-16 text-sm focus:outline-none placeholder:text-gray-700 text-white"
+                className="w-full bg-transparent px-8 py-4 pl-24 pr-16 text-sm focus:outline-none"
+                style={{color:'var(--text-primary)'}}
                 placeholder={isProcessing?"Tým agentů pracuje...":"Zadejte úkol nebo nahrajte dokumentaci..."}
                 value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>e.key==='Enter'&&!isProcessing&&(executeTask(input),setInput(""))}
@@ -1696,24 +1721,24 @@ export default function App() {
         </div>
 
         {/* PRAVÝ SLOUPEC — EDITOR + PREVIEW */}
-        <div className={`flex flex-col bg-[#0a0f1d] border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl h-full ${mobileTab!=='code'?'hidden lg:flex':'flex'}`}>
+        <div className={`flex flex-col theme-card border rounded-[2rem] overflow-hidden shadow-2xl h-full ${mobileTab!=='code'?'hidden lg:flex':'flex'}`} style={{borderColor:'var(--border)'}}>
           {/* Toolbar */}
-          <div className="px-5 py-3.5 bg-[#0d1426] flex items-center justify-between border-b border-white/5 shrink-0">
+          <div className="px-5 py-3.5 theme-toolbar flex items-center justify-between border-b shrink-0" style={{borderColor:'var(--border)'}}>
             <div className="flex items-center gap-2.5">
               <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"/>
-              <span className="text-[10px] font-black tracking-[0.2em] text-gray-500 uppercase">output_workspace</span>
+              <span className="text-[10px] font-black tracking-[0.2em] theme-text-sm-cls uppercase">output_workspace</span>
               <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-white/5 ${LANG_COLORS[codeLang]||'text-blue-400'}`}>
                 {LANG_LABELS[codeLang]||codeLang}
               </span>
               {/* Code/Preview přepínač — pouze pro HTML */}
               {codeLang === 'html' && (
-                <div className="flex bg-white/5 rounded-lg p-0.5 border border-white/5">
+                <div className="flex bg-white/5 rounded-lg p-0.5 border theme-border-cls">
                   <button onClick={()=>setShowPreview(false)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[9px] font-black transition-all ${!showPreview?'bg-blue-600/30 text-blue-300':'text-gray-600 hover:text-gray-400'}`}>
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[9px] font-black transition-all ${!showPreview?'bg-blue-600/30 text-blue-300':'theme-text-xs-cls hover:text-gray-400'}`}>
                     <Code size={10}/> Kód
                   </button>
                   <button onClick={()=>setShowPreview(true)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[9px] font-black transition-all ${showPreview?'bg-emerald-600/30 text-emerald-300':'text-gray-600 hover:text-gray-400'}`}>
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[9px] font-black transition-all ${showPreview?'bg-emerald-600/30 text-emerald-300':'theme-text-xs-cls hover:text-gray-400'}`}>
                     <Monitor size={10}/> Preview
                   </button>
                 </div>
@@ -1768,7 +1793,7 @@ export default function App() {
           )}
 
           {/* Status bar */}
-          <div className="px-5 py-2.5 bg-[#0d1426]/50 border-t border-white/5 flex items-center justify-between text-[9px] font-mono text-gray-600 shrink-0">
+          <div className="px-5 py-2.5 theme-toolbar border-t flex items-center justify-between text-[9px] font-mono shrink-0" style={{borderColor:'var(--border)', color:'var(--text-muted)'}}>
             <div className="flex items-center gap-3">
               <span>UTF-8</span>
               <span className={LANG_COLORS[codeLang]||'text-blue-400/50'}>{LANG_LABELS[codeLang]||codeLang}</span>
@@ -1781,11 +1806,208 @@ export default function App() {
       </main>
 
       <style dangerouslySetInnerHTML={{__html:`
+        /* Větší písmo celkově */
+        .app-root { font-size: 15px; }
+        .app-root .text-sm { font-size: 14px !important; }
+        .app-root .text-xs { font-size: 12px !important; }
+
+        /* Bulk-replaced theme classes */
+        .theme-card-bg   { background-color: var(--bg-card) !important; }
+        .theme-toolbar-bg{ background-color: var(--bg-toolbar) !important; }
+        .theme-input-bg  { background-color: var(--bg-input) !important; }
+        .theme-border-cls{ border-color: var(--border) !important; }
+        .theme-text-cls  { color: var(--text-primary) !important; }
+        .theme-text-sm-cls{ color: var(--text-secondary) !important; }
+        .theme-text-xs-cls{ color: var(--text-muted) !important; }
+        .theme-placeholder::placeholder { color: var(--text-muted) !important; }
+
+        /* Drawer pozadí a border */
+        .drawer-panel {
+          background-color: var(--bg-card) !important;
+          border-color: var(--border) !important;
+        }
+        /* Světlý stín draweru */
+        [data-theme="light"] .drawer-shadow {
+          box-shadow: -8px 0 40px rgba(0,0,0,0.12) !important;
+        }
+
+        /* AgentVisualizer */
+        .agent-viz-bg {
+          background-color: var(--bg-card) !important;
+          border-color: var(--border) !important;
+        }
+        .agent-inactive {
+          background-color: var(--bg-hover) !important;
+          border-color: var(--border) !important;
+        }
+
+        /* Modální dialogy */
+        .modal-bg {
+          background-color: var(--bg-card) !important;
+          border-color: var(--border) !important;
+        }
+
+        /* Hover stavy ve světlém režimu */
+        [data-theme="light"] .theme-hover:hover {
+          background-color: rgba(0,0,0,0.05) !important;
+        }
+        [data-theme="light"] .bg-white\/5 {
+          background-color: rgba(0,0,0,0.04) !important;
+        }
+        [data-theme="light"] .bg-white\/3 {
+          background-color: rgba(0,0,0,0.02) !important;
+        }
+        [data-theme="light"] .bg-white\/10 {
+          background-color: rgba(0,0,0,0.06) !important;
+        }
+        /* Shadowy ve světlém */
+        [data-theme="light"] .shadow-\[-20px_0_50px_rgba\(0\,0\,0\,0\.5\)\] {
+          box-shadow: -4px 0 30px rgba(0,0,0,0.12) !important;
+        }
+        /* Tmavé části které mají zůstat tmavé (ikony agentů) */
+        [data-theme="light"] .agent-active-dark {
+          background-color: rgba(59,130,246,0.15) !important;
+        }
+        /* Inputy ve světlém */
+        [data-theme="light"] input, [data-theme="light"] textarea, [data-theme="light"] select {
+          background-color: var(--bg-input) !important;
+          color: var(--text-primary) !important;
+          border-color: var(--border) !important;
+        }
+
+        /* text-white ve světlém -> tmavý text */
+        [data-theme="light"] .theme-card-bg .text-white,
+        [data-theme="light"] .theme-card-bg h2,
+        [data-theme="light"] .theme-card-bg h3 {
+          color: var(--text-primary) !important;
+        }
+        /* Drawer borders */
+        [data-theme="light"] .theme-card-bg .border-b,
+        [data-theme="light"] .theme-card-bg .border-t {
+          border-color: var(--border) !important;
+        }
+        /* Světlý bg pro vnořené karty */
+        [data-theme="light"] .theme-card-bg .bg-white\/5,
+        [data-theme="light"] .theme-card-bg .bg-white\/3 {
+          background-color: rgba(0,0,0,0.03) !important;
+        }
+        [data-theme="light"] .theme-card-bg .bg-white\/10 {
+          background-color: rgba(0,0,0,0.06) !important;
+        }
+        /* Světlé modaly */
+        [data-theme="light"] .theme-card-bg {
+          box-shadow: 0 4px 32px rgba(0,0,0,0.10) !important;
+        }
+
         @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
         .custom-scrollbar::-webkit-scrollbar{width:4px;height:4px}
         .custom-scrollbar::-webkit-scrollbar-track{background:transparent}
         .custom-scrollbar::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.05);border-radius:10px}
         .custom-scrollbar::-webkit-scrollbar-thumb:hover{background:rgba(59,130,246,0.3)}
+
+        /* ── TMAVÝ REŽIM (výchozí) ── */
+        :root {
+          --bg-page:    #070b15;
+          --bg-card:    #0a0f1d;
+          --bg-toolbar: #0d1426;
+          --bg-input:   rgba(0,0,0,0.3);
+          --bg-hover:   rgba(255,255,255,0.05);
+          --bg-msg-ai:  rgba(30,40,70,0.5);
+          --bg-msg-usr: rgba(59,130,246,0.12);
+          --border:     rgba(255,255,255,0.08);
+          --border-md:  rgba(255,255,255,0.10);
+          --text-primary:   #e2e8f0;
+          --text-secondary: #94a3b8;
+          --text-muted:     #475569;
+          --text-code:      #93c5fd;
+          --gradient-page:  linear-gradient(135deg, rgba(30,58,138,0.10) 0%, transparent 50%, rgba(88,28,135,0.10) 100%);
+          --shadow-card:    0 25px 50px rgba(0,0,0,0.5);
+          --scrollbar-thumb: rgba(255,255,255,0.05);
+        }
+
+        /* ── SVĚTLÝ REŽIM ── */
+        [data-theme="light"] {
+          --bg-page:    #f0f4ff;
+          --bg-card:    #ffffff;
+          --bg-toolbar: #e8eef8;
+          --bg-input:   rgba(255,255,255,0.9);
+          --bg-hover:   rgba(0,0,0,0.04);
+          --bg-msg-ai:  rgba(239,246,255,0.9);
+          --bg-msg-usr: rgba(59,130,246,0.10);
+          --border:     rgba(0,0,0,0.08);
+          --border-md:  rgba(0,0,0,0.12);
+          --text-primary:   #0f172a;
+          --text-secondary: #334155;
+          --text-muted:     #64748b;
+          --text-code:      #1d4ed8;
+          --gradient-page:  linear-gradient(135deg, rgba(219,234,254,0.6) 0%, rgba(255,255,255,0) 50%, rgba(237,233,254,0.4) 100%);
+          --shadow-card:    0 4px 24px rgba(0,0,0,0.10);
+          --scrollbar-thumb: rgba(0,0,0,0.10);
+        }
+
+        /* Aplikuj proměnné */
+        .app-root {
+          background-color: var(--bg-page) !important;
+          color: var(--text-primary) !important;
+          transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .app-root .app-gradient {
+          background: var(--gradient-page) !important;
+        }
+        .theme-card {
+          background-color: var(--bg-card) !important;
+          border-color: var(--border-md) !important;
+          box-shadow: var(--shadow-card) !important;
+        }
+        .theme-toolbar {
+          background-color: var(--bg-toolbar) !important;
+          border-color: var(--border) !important;
+        }
+        .theme-input {
+          background-color: var(--bg-input) !important;
+          border-color: var(--border) !important;
+          color: var(--text-primary) !important;
+        }
+        .theme-input::placeholder { color: var(--text-muted) !important; }
+        .theme-text    { color: var(--text-primary) !important; }
+        .theme-text-sm { color: var(--text-secondary) !important; }
+        .theme-text-xs { color: var(--text-muted) !important; }
+        .theme-border  { border-color: var(--border) !important; }
+        .theme-hover:hover { background-color: var(--bg-hover) !important; }
+
+        /* Chat bubliny */
+        .msg-ai  { background: var(--bg-msg-ai) !important; border-color: var(--border) !important; }
+        .msg-usr { background: var(--bg-msg-usr) !important; }
+
+        /* Světlý scrollbar */
+        [data-theme="light"] .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(0,0,0,0.10);
+        }
+        [data-theme="light"] .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(59,130,246,0.4);
+        }
+
+        /* Světlý code editor */
+        [data-theme="light"] .code-editor-bg {
+          background: #f8fafc !important;
+          color: #1e40af !important;
+        }
+        [data-theme="light"] .code-editor-bg span { filter: brightness(0.6) saturate(1.5); }
+
+        /* Světlý drawer overlay */
+        [data-theme="light"] .drawer-bg {
+          background: #ffffff !important;
+          border-color: rgba(0,0,0,0.10) !important;
+        }
+
+        /* Plynulé přechody */
+        *, *::before, *::after {
+          transition: background-color 0.25s ease, border-color 0.25s ease, color 0.15s ease;
+        }
+        /* Ale ne pro animace */
+        .animate-spin, .animate-pulse, [class*="animate-"] {
+          transition: none !important;
+        }
       `}}/>
     </div>
   );
