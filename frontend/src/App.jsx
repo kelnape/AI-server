@@ -9,7 +9,7 @@ import {
   BookOpen, Bookmark, BookmarkCheck, Lightbulb, Clock,
   BarChart2, DollarSign, TrendingUp, AlertTriangle,
   Monitor, Eye, EyeOff, Package, Wand2, Palette, Layers,
-  Sun, Moon
+  Sun, Moon, PlayCircle, PenLine, StopCircle, ChevronUp, ChevronDown as ChevronDownIcon
 } from 'lucide-react';
 
 // =============================================================================
@@ -64,15 +64,52 @@ const highlight = (text, lang = "python") => {
 const LANG_LABELS = { python: 'Python', bash: 'Bash/Shell', html: 'HTML', css: 'CSS', javascript: 'JavaScript', json: 'JSON' };
 const LANG_COLORS = { python: 'text-blue-400', bash: 'text-green-400', html: 'text-orange-400', css: 'text-pink-400', javascript: 'text-yellow-400', json: 'text-cyan-400' };
 const WEB_TRIGGER_WORDS = ['eshop','e-shop','web','website','stránk','stránky','landing','portfolio','blog','obchod','prodej','frontend','html','tailwind'];
-const GIT_REPO_PATH = ''; // zobrazeno v Git drawer footeru — backend ho vyplní
+const GIT_REPO_PATH = '';
 
-const CodeEditor = ({ code, lang = "python" }) => (
-  <pre
-    className="code-editor-bg flex-1 p-6 font-mono overflow-auto custom-scrollbar whitespace-pre-wrap leading-relaxed m-0 border-0"
-    style={{background:'var(--bg-toolbar)', color:'var(--text-code)', fontSize:'14px', lineHeight:'1.7'}}
-    dangerouslySetInnerHTML={{ __html: highlight(code, lang) }}
-  />
-);
+// API klíč z Vite env proměnné — nastav VITE_API_SECRET v .env souboru frontendu
+const API_KEY = import.meta.env.VITE_API_SECRET || '';
+
+/**
+ * Wrapper kolem fetch — automaticky přidá X-API-Key header ke všem API voláním.
+ * Použití: apiFetch('/api/chat', { method:'POST', body:... })
+ */
+function apiFetch(url, options = {}) {
+  const headers = {
+    ...(options.headers || {}),
+    ...(API_KEY ? {'X-API-Key': API_KEY} : {}),
+  };
+  return fetch(url, { ...options, headers });
+}
+
+const CodeEditor = ({ code, lang = "python", isEditing = false, onChange }) => {
+  if (isEditing) {
+    return (
+      <textarea
+        value={code}
+        onChange={e => onChange && onChange(e.target.value)}
+        className="flex-1 p-6 font-mono overflow-auto custom-scrollbar m-0 border-0 resize-none focus:outline-none w-full"
+        style={{
+          background: 'var(--bg-toolbar)',
+          color: 'var(--text-primary)',
+          fontSize: '14px',
+          lineHeight: '1.7',
+          fontFamily: '"Courier New", Courier, monospace',
+        }}
+        spellCheck={false}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+      />
+    );
+  }
+  return (
+    <pre
+      className="code-editor-bg flex-1 p-6 font-mono overflow-auto custom-scrollbar whitespace-pre-wrap leading-relaxed m-0 border-0"
+      style={{background:'var(--bg-toolbar)', color:'var(--text-code)', fontSize:'14px', lineHeight:'1.7'}}
+      dangerouslySetInnerHTML={{ __html: highlight(code, lang) }}
+    />
+  );
+};
 
 // =============================================================================
 // SERVER METRIKY
@@ -82,7 +119,7 @@ const ServerMetrics = () => {
   const [online, setOnline] = useState(false);
   useEffect(() => {
     const fetch_ = async () => {
-      try { const r=await fetch('/api/metrics'); if(r.ok){setMetrics(await r.json());setOnline(true);}else setOnline(false); }
+      try { const r=await apiFetch('/api/metrics'); if(r.ok){setMetrics(await r.json());setOnline(true);}else setOnline(false); }
       catch { setOnline(false); }
     };
     fetch_(); const i=setInterval(fetch_,3000); return ()=>clearInterval(i);
@@ -161,7 +198,7 @@ const ModelSelector = ({ activeModel, onSelect }) => {
   const ref = useRef(null);
 
   useEffect(() => {
-    fetch('/api/models').then(r=>r.json()).then(d=>setModels(d.available||[])).catch(()=>{});
+    apiFetch('/api/models').then(r=>r.json()).then(d=>setModels(d.available||[])).catch(()=>{});
   }, []);
 
   useEffect(() => {
@@ -230,7 +267,7 @@ const PromptEditor = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     if (!isOpen) return;
-    fetch('/api/prompts').then(r=>r.json()).then(d=>{
+    apiFetch('/api/prompts').then(r=>r.json()).then(d=>{
       setPrompts(d.agent_prompts||{});
       setBaseIdentity(d.base_identity||"");
     }).catch(()=>{});
@@ -244,7 +281,7 @@ const PromptEditor = ({ isOpen, onClose }) => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await fetch('/api/prompts', { method:'POST', headers:{'Content-Type':'application/json'},
+      await apiFetch('/api/prompts', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({agent_id: selectedAgent, prompt: draft}) });
       setPrompts(prev => ({...prev, [selectedAgent]: draft}));
       setSaved(true); setTimeout(()=>setSaved(false), 2000);
@@ -254,7 +291,7 @@ const PromptEditor = ({ isOpen, onClose }) => {
 
   const handleDelete = async () => {
     if (!prompts[selectedAgent]) return;
-    await fetch(`/api/prompts/${selectedAgent}`, {method:'DELETE'});
+    await apiFetch(`/api/prompts/${selectedAgent}`, {method:'DELETE'});
     setPrompts(prev => {const n={...prev}; delete n[selectedAgent]; return n;});
     setDraft("");
   };
@@ -551,13 +588,14 @@ const ProjectPlanner = ({ plan, currentStep }) => {
 // =============================================================================
 // CHAT ZPRÁVY
 // =============================================================================
-const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
+const ChatMessage = ({ msg, onLearn, onFeedback, lastUserMsg }) => {
   const isUser = msg.role === 'user';
   const isSystem = msg.role === 'system';
   const agentInfo = AGENTS.find(a => a.id === msg.agent);
   const AgentIcon = agentInfo?.icon || Bot;
   const agentColor = AGENT_COLORS[msg.agent] || 'text-blue-400';
-  const [learnState, setLearnState] = useState('idle'); // idle | saving | saved
+  const [learnState, setLearnState] = useState('idle');
+  const [feedback, setFeedback] = useState(null); // null | 1 | -1
 
   if (isSystem) return (
     <div className="flex items-center gap-3 py-1 px-1 opacity-40">
@@ -586,7 +624,14 @@ const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
     setLearnState('saved');
   };
 
-  const canLearn = msg.agent === 'FINALIZER' || msg.agent === 'EXPERT' || msg.agent === 'SYSADMIN' || msg.agent === 'VYZKUMNIK';
+  const handleFeedback = async (thumbs) => {
+    if (feedback !== null) return;
+    setFeedback(thumbs);
+    onFeedback && onFeedback({ task_id: msg.task_id || '', query: lastUserMsg || '', response: msg.content, thumbs });
+  };
+
+  const canLearn = ['FINALIZER','EXPERT','SYSADMIN','VYZKUMNIK'].includes(msg.agent);
+  const canFeedback = msg.agent === 'FINALIZER' || msg.role === 'ai';
 
   return (
     <div className="group flex gap-3 animate-in slide-in-from-bottom-2 duration-300">
@@ -594,32 +639,47 @@ const ChatMessage = ({ msg, onLearn, lastUserMsg }) => {
         <AgentIcon size={13} className={agentColor}/>
       </div>
       <div className="max-w-[85%] flex-1">
-        <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           {msg.agent && (
             <span className={`text-[9px] font-black uppercase tracking-widest ${agentColor}`}>
               {agentInfo?.label || msg.agent}
             </span>
           )}
-          {/* Tlačítko učení — zobrazí se po hoveru u vhodných odpovědí */}
+          {/* Skóre kvality */}
+          {msg.quality != null && (
+            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
+              msg.quality >= 8 ? 'bg-emerald-500/15 text-emerald-400' :
+              msg.quality >= 6 ? 'bg-amber-500/15 text-amber-400' :
+              'bg-red-500/15 text-red-400'}`} title={msg.qualityReason || ''}>
+              ★ {msg.quality}/10
+            </span>
+          )}
+          {/* Zapamatovat */}
           {canLearn && (
-            <button
-              onClick={handleLearn}
-              title="Zapamatovat tuto odpověď do trvalé paměti"
+            <button onClick={handleLearn} title="Zapamatovat do trvalé paměti"
               className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all duration-300 ${
-                learnState === 'saved'
-                  ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
-                  : learnState === 'saving'
-                  ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-wait'
-                  : 'opacity-0 group-hover:opacity-100 bg-white/5 border theme-border-cls theme-text-sm-cls hover:bg-emerald-500/10 hover:border-emerald-500/20 hover:text-emerald-400'
-              }`}
-            >
-              {learnState === 'saved'
-                ? <><BookmarkCheck size={11}/> Uloženo</>
-                : learnState === 'saving'
-                ? <><div className="w-2 h-2 border border-amber-400/40 border-t-amber-400 rounded-full animate-spin"/></>
-                : <><Bookmark size={11}/> Zapamatovat</>
-              }
+                learnState === 'saved' ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
+                : learnState === 'saving' ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-wait'
+                : 'opacity-0 group-hover:opacity-100 bg-white/5 border theme-border-cls theme-text-sm-cls hover:bg-emerald-500/10 hover:border-emerald-500/20 hover:text-emerald-400'}`}>
+              {learnState === 'saved' ? <><BookmarkCheck size={11}/> Uloženo</>
+               : learnState === 'saving' ? <div className="w-2 h-2 border border-amber-400/40 border-t-amber-400 rounded-full animate-spin"/>
+               : <><Bookmark size={11}/> Zapamatovat</>}
             </button>
+          )}
+          {/* 👍 / 👎 feedback */}
+          {canFeedback && (
+            <div className={`flex items-center gap-1 transition-opacity duration-200 ${feedback !== null ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+              <button onClick={() => handleFeedback(1)}
+                className={`text-[11px] px-1.5 py-0.5 rounded-lg border transition-all ${
+                  feedback === 1 ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                  : 'bg-white/5 border-white/10 theme-text-sm-cls hover:bg-emerald-500/10 hover:text-emerald-400'}`}
+                title="Dobrá odpověď">👍</button>
+              <button onClick={() => handleFeedback(-1)}
+                className={`text-[11px] px-1.5 py-0.5 rounded-lg border transition-all ${
+                  feedback === -1 ? 'bg-red-500/20 border-red-500/30 text-red-400'
+                  : 'bg-white/5 border-white/10 theme-text-sm-cls hover:bg-red-500/10 hover:text-red-400'}`}
+                title="Špatná odpověď">👎</button>
+            </div>
           )}
         </div>
         <div className="msg-ai border rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{borderColor:'var(--border)', color:'var(--text-primary)'}}>
@@ -741,7 +801,7 @@ const GitDrawer = ({ isOpen, onClose }) => {
   const load = async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/git/status');
+      const r = await apiFetch('/api/git/status');
       if (r.ok) setStatus(await r.json());
     } catch {}
     setLoading(false);
@@ -752,7 +812,7 @@ const GitDrawer = ({ isOpen, onClose }) => {
   const handleCommit = async () => {
     setPushing(true); setResult(null);
     try {
-      const r = await fetch('/api/git/commit', {
+      const r = await apiFetch('/api/git/commit', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ message: commitMsg, push: true })
       });
@@ -767,7 +827,7 @@ const GitDrawer = ({ isOpen, onClose }) => {
   const handlePull = async () => {
     setPulling(true); setResult(null);
     try {
-      const r = await fetch('/api/git/pull', { method: 'POST' });
+      const r = await apiFetch('/api/git/pull', { method: 'POST' });
       const d = await r.json();
       setResult({ status: d.status, steps: [{step:'pull', ok: d.status==='ok', out: d.out}] });
       await load();
@@ -912,6 +972,152 @@ const GitDrawer = ({ isOpen, onClose }) => {
 };
 
 // =============================================================================
+// FRONTA ÚKOLŮ DRAWER
+// =============================================================================
+const STATUS_STYLES = {
+  pending:  { color:'text-amber-400',  bg:'bg-amber-500/10',  label:'Čeká',      dot:'bg-amber-400' },
+  running:  { color:'text-blue-400',   bg:'bg-blue-500/10',   label:'Běží',      dot:'bg-blue-400 animate-pulse' },
+  done:     { color:'text-emerald-400',bg:'bg-emerald-500/10',label:'Hotovo',    dot:'bg-emerald-400' },
+  failed:   { color:'text-red-400',    bg:'bg-red-500/10',    label:'Selhalo',   dot:'bg-red-400' },
+};
+
+const QueueDrawer = ({ isOpen, onClose, onAddTask }) => {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [input, setInput] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try { const r = await apiFetch('/api/queue'); if(r.ok) setTasks(await r.json()); } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    load();
+    const i = setInterval(load, 4000);
+    return () => clearInterval(i);
+  }, [isOpen]);
+
+  const handleAdd = async () => {
+    if (!input.trim() || adding) return;
+    setAdding(true);
+    await onAddTask(input.trim());
+    setInput('');
+    setAdding(false);
+    setTimeout(load, 800);
+  };
+
+  const handleDelete = async (id) => {
+    await apiFetch(`/api/queue/${id}`, { method: 'DELETE' });
+    load();
+  };
+
+  const pending = tasks.filter(t=>t.status==='pending').length;
+  const running = tasks.filter(t=>t.status==='running').length;
+
+  return (
+    <>
+      {isOpen && <Overlay onClick={onClose}/>}
+      <div className={`fixed inset-y-0 right-0 w-[32rem] max-w-[95vw] theme-card-bg border-l theme-border-cls z-50 transform transition-transform duration-500 ${isOpen?'translate-x-0':'translate-x-full'} shadow-[-20px_0_50px_rgba(0,0,0,0.3)] flex flex-col`}>
+
+        {/* Header */}
+        <div className="px-6 py-5 border-b theme-border-cls flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-violet-500/10 rounded-xl"><ListChecks size={18} className="text-violet-400"/></div>
+            <div>
+              <h2 className="text-base font-black tracking-tighter uppercase italic" style={{color:'var(--text-primary)'}}>Fronta úkolů</h2>
+              <p className="text-[9px] font-mono mt-0.5" style={{color:'var(--text-muted)'}}>
+                {pending} čeká · {running} běží · {tasks.length} celkem
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full" style={{color:'var(--text-muted)'}}><X size={17}/></button>
+        </div>
+
+        {/* Input pro nový úkol */}
+        <div className="px-6 py-4 border-b theme-border-cls shrink-0">
+          <div className="text-[9px] font-black uppercase tracking-widest mb-2" style={{color:'var(--text-muted)'}}>Přidat do fronty</div>
+          <div className="flex gap-2">
+            <textarea value={input} onChange={e=>setInput(e.target.value)}
+              placeholder="Popis úkolu — agent ho zpracuje automaticky..."
+              rows={2}
+              className="flex-1 theme-input rounded-xl px-3 py-2 text-[12px] font-mono resize-none focus:outline-none custom-scrollbar"
+              style={{background:'var(--bg-input)', color:'var(--text-primary)', borderColor:'var(--border)', border:'0.5px solid'}}
+              onKeyDown={e=>{ if(e.key==='Enter'&&e.ctrlKey) handleAdd(); }}
+            />
+            <button onClick={handleAdd} disabled={adding||!input.trim()}
+              className="px-4 py-2 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/25 text-violet-300 rounded-xl text-[10px] font-black disabled:opacity-30 transition-all self-stretch flex items-center gap-1.5">
+              {adding ? <div className="w-3 h-3 border-2 border-violet-700 border-t-violet-400 rounded-full animate-spin"/> : <><ArrowRight size={13}/>Přidat</>}
+            </button>
+          </div>
+          <p className="text-[9px] mt-1.5" style={{color:'var(--text-muted)'}}>Ctrl+Enter pro rychlé přidání</p>
+        </div>
+
+        {/* Seznam úkolů */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-4 space-y-2">
+          {loading && tasks.length === 0 ? (
+            <div className="flex items-center justify-center h-24 gap-2" style={{color:'var(--text-muted)'}}>
+              <div className="w-4 h-4 border-2 border-gray-700 border-t-violet-500 rounded-full animate-spin"/>
+              <span className="text-xs font-mono">Načítám frontu...</span>
+            </div>
+          ) : tasks.length === 0 ? (
+            <div className="text-center py-12">
+              <ListChecks size={28} className="mx-auto mb-3 opacity-20" style={{color:'var(--text-muted)'}}/>
+              <p className="text-sm" style={{color:'var(--text-muted)'}}>Fronta je prázdná</p>
+              <p className="text-[10px] mt-1" style={{color:'var(--text-muted)'}}>Přidej úkoly výše — zpracují se postupně</p>
+            </div>
+          ) : tasks.map(t => {
+            const st = STATUS_STYLES[t.status] || STATUS_STYLES.pending;
+            const isExp = expanded === t.id;
+            return (
+              <div key={t.id} className="rounded-2xl border overflow-hidden" style={{borderColor:'var(--border)', background:'var(--bg-card)'}}>
+                <div className="px-4 py-3 flex items-center gap-3 cursor-pointer" onClick={()=>setExpanded(isExp?null:t.id)}>
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`}/>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-mono truncate" style={{color:'var(--text-primary)'}}>{t.message}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-[9px] font-black uppercase ${st.color}`}>{st.label}</span>
+                      {t.quality_score && <span className="text-[9px]" style={{color:'var(--text-muted)'}}>★ {t.quality_score}/10</span>}
+                      {t.finished_at && <span className="text-[9px] font-mono" style={{color:'var(--text-muted)'}}>{new Date(t.finished_at).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'})}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {t.status === 'pending' && (
+                      <button onClick={e=>{e.stopPropagation();handleDelete(t.id);}} className="p-1 hover:text-red-400 transition-colors" style={{color:'var(--text-muted)'}}>
+                        <Trash2 size={12}/>
+                      </button>
+                    )}
+                    <ChevronDown size={13} style={{color:'var(--text-muted)', transform:isExp?'rotate(180deg)':'', transition:'transform 0.2s'}}/>
+                  </div>
+                </div>
+                {isExp && t.result && (
+                  <div className="px-4 pb-3 border-t theme-border-cls pt-3">
+                    <div className="text-[10px] font-black uppercase tracking-widest mb-2" style={{color:'var(--text-muted)'}}>Výsledek</div>
+                    <div className="text-[11px] leading-relaxed whitespace-pre-wrap max-h-32 overflow-y-auto custom-scrollbar" style={{color:'var(--text-secondary)'}}>
+                      {t.result.slice(0, 400)}{t.result.length > 400 ? '...' : ''}
+                    </div>
+                    {t.code && <div className="mt-2 text-[9px] font-black text-emerald-400">💾 Kód ({t.lang}) vygenerován</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t theme-border-cls flex items-center justify-between shrink-0">
+          <button onClick={load} className="text-[9px] font-mono transition-colors" style={{color:'var(--text-muted)'}}>↻ Obnovit</button>
+          <span className="text-[9px] font-mono" style={{color:'var(--text-muted)'}}>Ctrl+Enter = přidat rychle</span>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// =============================================================================
 // TELEMETRIE DRAWER
 // =============================================================================
 const TelemetryDrawer = ({ isOpen, onClose }) => {
@@ -925,7 +1131,7 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
   const load = async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/telemetry?limit=10');
+      const r = await apiFetch('/api/telemetry?limit=10');
       if (r.ok) setData(await r.json());
     } catch {}
     setLoading(false);
@@ -995,7 +1201,7 @@ const TelemetryDrawer = ({ isOpen, onClose }) => {
 
   const handleClear = async () => {
     setClearing(true);
-    await fetch('/api/telemetry', { method: 'DELETE' });
+    await apiFetch('/api/telemetry', { method: 'DELETE' });
     setData(null); setClearing(false);
   };
 
@@ -1166,7 +1372,7 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
   const loadMemories = async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/memory');
+      const r = await apiFetch('/api/memory');
       if (r.ok) {
         const data = await r.json();
         setMemories(data);
@@ -1181,7 +1387,7 @@ const MemoryDrawer = ({ isOpen, onClose, memoryCount, onCountChange }) => {
   const handleDelete = async (id) => {
     setDeleting(id);
     try {
-      await fetch(`/api/memory/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/memory/${id}`, { method: 'DELETE' });
       setMemories(prev => {
         const updated = prev.filter(m => m.id !== id);
         onCountChange(updated.length);
@@ -1293,11 +1499,15 @@ export default function App() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isGitOpen, setIsGitOpen] = useState(false);
+  const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isTelemetryOpen, setIsTelemetryOpen] = useState(false);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [isDark, setIsDark] = useState(() => {
     try { return localStorage.getItem('theme') !== 'light'; } catch { return true; }
   });
+  const [isEditing, setIsEditing] = useState(false);
+  const [runOutput, setRunOutput] = useState(null); // {status, output, duration_ms}
+  const [isRunning, setIsRunning] = useState(false);
 
   useEffect(() => {
     try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch {}
@@ -1310,8 +1520,21 @@ export default function App() {
   const [attachments, setAttachments] = useState([]);
   const [sysAlerts, setSysAlerts] = useState([]);
   const [taskHistory, setTaskHistory] = useState([]);
-  const [code, setCode] = useState("# Vítejte ve Workspace.\n# Systém čeká na vaše zadání...");
-  const [codeLang, setCodeLang] = useState("python");
+  const [code, setCode] = useState(() => {
+    try { return localStorage.getItem('eas_editor_code') || "# Vítejte ve Workspace.\n# Systém čeká na vaše zadání..."; } catch { return "# Vítejte ve Workspace.\n# Systém čeká na vaše zadání..."; }
+  });
+  const [codeLang, setCodeLang] = useState(() => {
+    try { return localStorage.getItem('eas_editor_lang') || 'python'; } catch { return 'python'; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('eas_editor_code', code); localStorage.setItem('eas_editor_lang', codeLang); } catch {}
+  }, [code, codeLang]);
+
+  const clearSession = () => {
+    try { localStorage.removeItem('eas_chat_session'); } catch {}
+    setChatMessages([{id:0, role:'system', content:'Session vymazána — Inženýrský systém v9.2'}]);
+  };
   const [activeAgent, setActiveAgent] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -1319,9 +1542,21 @@ export default function App() {
   const [currentPlanStep, setCurrentPlanStep] = useState(-1);
   const [activeModel, setActiveModel] = useState("gpt-4o-mini");
   const [mobileTab, setMobileTab] = useState('chat');
-  const [chatMessages, setChatMessages] = useState([
-    {id:0, role:'system', content:'Inženýrský systém v9.2 online — Authenticated: Kelnape'}
-  ]);
+  const [chatMessages, setChatMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem('eas_chat_session');
+      if (saved) {
+        const msgs = JSON.parse(saved);
+        if (Array.isArray(msgs) && msgs.length > 0) return msgs;
+      }
+    } catch {}
+    return [{id:0, role:'system', content:'Inženýrský systém v9.2 online — Authenticated: Kelnape'}];
+  });
+
+  // Ulož chat do localStorage při každé změně (max 60 zpráv)
+  useEffect(() => {
+    try { localStorage.setItem('eas_chat_session', JSON.stringify(chatMessages.slice(-60))); } catch {}
+  }, [chatMessages]);
 
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -1343,9 +1578,9 @@ export default function App() {
   useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [chatMessages, isProcessing]);
 
   useEffect(() => {
-    fetch('/api/history').then(r=>r.json()).then(setTaskHistory).catch(()=>{});
-    fetch('/api/models').then(r=>r.json()).then(d=>{ if(d.active) setActiveModel(d.active); }).catch(()=>{});
-    const i = setInterval(async()=>{ try{ const r=await fetch('/api/alerts'); if(r.ok) setSysAlerts((await r.json()).alerts||[]); }catch{} },5000);
+    apiFetch('/api/history').then(r=>r.json()).then(setTaskHistory).catch(()=>{});
+    apiFetch('/api/models').then(r=>r.json()).then(d=>{ if(d.active) setActiveModel(d.active); }).catch(()=>{});
+    const i = setInterval(async()=>{ try{ const r=await apiFetch('/api/alerts'); if(r.ok) setSysAlerts((await r.json()).alerts||[]); }catch{} },5000);
     return ()=>clearInterval(i);
   }, []);
 
@@ -1373,7 +1608,7 @@ export default function App() {
     addMessage({role:'system',content:'📚 Indexace do ChromaDB...'});
     setIsProcessing(true); setActiveAgent("REFLEKTOR");
     try {
-      const r = await fetch('/api/learn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:last.query,code:last.code})});
+      const r = await apiFetch('/api/learn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:last.query,code:last.code})});
       addMessage({role:'ai',agent:'REFLEKTOR',content:r.ok?'✅ Zlaté pravidlo uloženo do ChromaDB.':'❌ Chyba indexace.'});
     } catch { addMessage({role:'ai',agent:'REFLEKTOR',content:'❌ Chyba komunikace.'}); }
     finally { setIsProcessing(false); setActiveAgent(null); }
@@ -1382,26 +1617,42 @@ export default function App() {
   // Uložení konkrétní chat bubliny do trvalé paměti
   const handleLearnMessage = async ({ content, query, agent }) => {
     try {
-      const r = await fetch('/api/learn', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: query || lastUserMsgRef.current || "—",
-          code: content,
-          type: 'user_learn',
-          agent: agent || 'FINALIZER',
-        })
+      const r = await apiFetch('/api/learn', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query || lastUserMsgRef.current || "—",
+          code: content, type: 'user_learn', agent: agent || 'FINALIZER' })
       });
-      if (r.ok) {
-        setMemoryCount(prev => prev + 1);
-        addMessage({ role: 'system', content: '🧠 Odpověď uložena do trvalé paměti' });
-      }
+      if (r.ok) { setMemoryCount(prev => prev + 1); addMessage({ role: 'system', content: '🧠 Odpověď uložena do trvalé paměti' }); }
+    } catch {}
+  };
+
+  // Feedback 👍/👎
+  const handleFeedback = async ({ task_id, query, response, thumbs }) => {
+    try {
+      await apiFetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id, query, response: response.slice(0,500), thumbs })
+      });
+      addMessage({ role: 'system', content: thumbs === 1 ? '👍 Díky za zpětnou vazbu!' : '👎 Feedback zaznamenán — pomůže zlepšení systému.' });
+    } catch {}
+  };
+
+  // Fronta úkolů
+  const handleAddToQueue = async (message) => {
+    if (!message.trim()) return;
+    try {
+      const r = await apiFetch('/api/queue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, model_id: activeModel })
+      });
+      const d = await r.json();
+      if (r.ok) { addMessage({ role: 'system', content: `📋 ${d.message}` }); }
     } catch {}
   };
 
   const handleModelSelect = async (modelId) => {
     try {
-      const r = await fetch('/api/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model_id:modelId})});
+      const r = await apiFetch('/api/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model_id:modelId})});
       const d = await r.json();
       if(r.ok){ setActiveModel(modelId); addMessage({role:'system',content:`🤖 Model přepnut na: ${d.label}`}); }
       else addMessage({role:'system',content:`❌ Chyba: ${d.detail}`});
@@ -1437,12 +1688,14 @@ export default function App() {
     setAttachments([]);
 
     try {
-      const response = await fetch('/api/chat',{
+      const response = await apiFetch('/api/chat',{
         method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           message: msg, files: filesToUpload,
           model_id: activeModel,
           project_specs: projectSpecs || {},
+          current_editor_code: code || '',
+          current_editor_lang: codeLang || 'python',
         }),
         signal:abortControllerRef.current.signal
       });
@@ -1463,16 +1716,13 @@ export default function App() {
             else if(data.type==='progress'){ const id=data.node.toUpperCase(); setActiveAgent(id); if(!agentsSeen.includes(id)){agentsSeen.push(id);const a=AGENTS.find(x=>x.id===id);if(a)addMessage({role:'system',content:`→ ${a.label}`});} }
             else if(data.type==='final'){
               setActiveAgent(null);
-              addMessage({role:'ai',agent:'FINALIZER',content:data.response});
+              addMessage({role:'ai', agent:'FINALIZER', content:data.response,
+                          task_id: data.task_id||'', quality: null, qualityReason:''});
               if(data.code){
                 setCode(data.code); setCodeLang(data.lang||'python');
+                setIsEditing(false); setRunOutput(null);
                 addMessage({role:'system',content:`💾 Kód (${LANG_LABELS[data.lang]||data.lang}) uložen do editoru`});
-                // Auto-zapni preview pokud je HTML
-                if(data.lang === 'html') {
-                  setShowPreview(true);
-                  setMobileTab('code');
-                  addMessage({role:'system',content:'👁️ Live preview zapnut — přepni na záložku Kód/Preview'});
-                }
+                if(data.lang === 'html') { setShowPreview(true); setMobileTab('code'); addMessage({role:'system',content:'👁️ Live preview zapnut — přepni na záložku Kód/Preview'}); }
               }
               setTaskHistory(prev=>[{query:msg,response:data.response,code:data.code,date:data.date||new Date().toLocaleTimeString(),model:data.model,hasCode:!!data.code},...prev]);
             } else if(data.type==='error'){ addMessage({role:'system',content:`❌ ${data.message}`}); }
@@ -1489,13 +1739,12 @@ export default function App() {
     if (!code || codeLang !== 'html') return;
     addMessage({role:'system', content:'📦 Generuji ZIP archiv projektu...'});
     try {
-      const r = await fetch('/api/export-zip', {
+      const r = await apiFetch('/api/export-zip', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({html: code, project_name: 'web-projekt'})
       });
       const d = await r.json();
       if(d.status==='ok') {
-        // Trigger download
         const bytes = atob(d.data);
         const ab = new ArrayBuffer(bytes.length);
         const ua = new Uint8Array(ab);
@@ -1507,6 +1756,30 @@ export default function App() {
         addMessage({role:'system', content:`✅ ZIP stažen: ${d.filename} (${d.size_kb}KB) — ${d.files.join(', ')}`});
       }
     } catch { addMessage({role:'system', content:'❌ Chyba při generování ZIP'}); }
+  };
+
+  // Spuštění kódu
+  const handleRun = async () => {
+    if (!code.trim() || isRunning) return;
+    // HTML — jen refreshni preview
+    if (codeLang === 'html') { setShowPreview(true); return; }
+    if (!['python','bash','javascript'].includes(codeLang)) {
+      setRunOutput({status:'error', output:`Spuštění jazyka '${codeLang}' není podporováno.\nPodporované: Python, Bash, JavaScript`, duration_ms:0});
+      return;
+    }
+    setIsRunning(true);
+    setRunOutput(null);
+    try {
+      const r = await apiFetch('/api/run', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({code, lang: codeLang})
+      });
+      const d = await r.json();
+      setRunOutput(d);
+    } catch(e) {
+      setRunOutput({status:'error', output:`❌ Chyba komunikace: ${e.message}`, duration_ms:0});
+    }
+    setIsRunning(false);
   };
 
   // =============================================================================
@@ -1545,6 +1818,11 @@ export default function App() {
             <BarChart2 size={15} className="text-blue-400"/>
             <span className="text-[10px] font-black uppercase tracking-widest text-blue-300 hidden lg:block">Telemetrie</span>
           </button>
+          {/* Fronta */}
+          <button onClick={()=>setIsQueueOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 rounded-xl transition-all" title="Fronta úkolů — batch zpracování">
+            <ListChecks size={15} className="text-violet-400"/>
+            <span className="text-[10px] font-black uppercase tracking-widest text-violet-300 hidden lg:block">Fronta</span>
+          </button>
           {/* Paměť */}
           <button onClick={()=>setIsMemoryOpen(true)} className="relative flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl transition-all" title="Trvalá paměť systému">
             <BookOpen size={15} className="text-emerald-400"/>
@@ -1558,6 +1836,10 @@ export default function App() {
           <button onClick={handleLearn} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 rounded-xl transition-all">
             <Brain size={15} className="text-pink-400"/>
             <span className="text-[10px] font-black uppercase tracking-widest text-pink-300 hidden sm:block">Učit</span>
+          </button>
+          <button onClick={clearSession} className="flex items-center gap-2 px-3 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl transition-all" title="Vymazat historii chatu">
+            <Trash2 size={15} className="text-red-400"/>
+            <span className="text-[10px] font-black uppercase tracking-widest text-red-300 hidden lg:block">Chat</span>
           </button>
           <button onClick={()=>setIsHistoryOpen(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/20 rounded-xl transition-all">
             <History size={15} className="text-slate-400"/>
@@ -1587,6 +1869,7 @@ export default function App() {
       {/* MODÁLY & DRAWERY */}
       <PromptEditor isOpen={isPromptEditorOpen} onClose={()=>setIsPromptEditorOpen(false)}/>
       <GitDrawer isOpen={isGitOpen} onClose={()=>setIsGitOpen(false)}/>
+      <QueueDrawer isOpen={isQueueOpen} onClose={()=>setIsQueueOpen(false)} onAddTask={handleAddToQueue}/>
       <TelemetryDrawer isOpen={isTelemetryOpen} onClose={()=>setIsTelemetryOpen(false)}/>
       <MemoryDrawer isOpen={isMemoryOpen} onClose={()=>setIsMemoryOpen(false)} memoryCount={memoryCount} onCountChange={setMemoryCount}/>
 
@@ -1626,7 +1909,7 @@ export default function App() {
       </div>
 
       {/* HLAVNÍ OBSAH */}
-      <main className="relative flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 grid lg:grid-cols-2 gap-6 lg:gap-10 overflow-hidden" style={{height:'calc(100vh - 160px)'}}>
+      <main className="relative flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 grid lg:grid-cols-[2fr_3fr] gap-6 lg:gap-8 overflow-hidden" style={{height:'calc(100vh - 160px)'}}>
 
         {/* LEVÝ SLOUPEC */}
         <div className={`flex flex-col gap-3 overflow-hidden h-full ${mobileTab!=='chat'?'hidden lg:flex':'flex'}`}>
@@ -1641,6 +1924,7 @@ export default function App() {
                   key={msg.id}
                   msg={msg}
                   onLearn={handleLearnMessage}
+                  onFeedback={handleFeedback}
                   lastUserMsg={lastUserMsgRef.current}
                 />
               ))}
@@ -1683,7 +1967,7 @@ export default function App() {
                   addMessage({role:'system', content:`🔍 Spouštím rychlou analýzu: ${attachments.map(a=>a.name).join(', ')}`});
                   setIsProcessing(true); setActiveAgent('EXPERT');
                   try {
-                    const r = await fetch('/api/analyze', {
+                    const r = await apiFetch('/api/analyze', {
                       method:'POST', headers:{'Content-Type':'application/json'},
                       body: JSON.stringify({files: filesToAnalyze, question: input || 'Analyzuj tento soubor podrobně.', model_id: activeModel})
                     });
@@ -1765,6 +2049,23 @@ export default function App() {
               )}
             </div>
             <div className="flex items-center gap-1.5">
+              {/* Edit / View přepínač */}
+              <button onClick={()=>{ setIsEditing(e=>!e); setRunOutput(null); }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black transition-all ${isEditing?'bg-amber-500/20 border-amber-500/30 text-amber-300':'bg-white/5 hover:bg-white/10 border-white/10 theme-text-sm-cls'}`}
+                title={isEditing ? 'Přepnout do zobrazení (highlight)' : 'Přepnout do editačního režimu'}>
+                <PenLine size={13}/><span className="hidden xl:block">{isEditing ? 'Zobrazit' : 'Editovat'}</span>
+              </button>
+              {/* Spustit — pro Python, Bash, JS, HTML */}
+              {['python','bash','javascript','html'].includes(codeLang) && (
+                <button onClick={handleRun} disabled={isRunning}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black transition-all active:scale-95 ${isRunning?'bg-green-500/10 border-green-500/20 text-green-500 cursor-wait':'bg-green-500/15 hover:bg-green-500/25 border-green-500/25 text-green-400'}`}
+                  title="Spustit kód">
+                  {isRunning
+                    ? <><div className="w-3 h-3 border-2 border-green-700 border-t-green-400 rounded-full animate-spin"/><span className="hidden xl:block">Běží...</span></>
+                    : <><PlayCircle size={13}/><span className="hidden xl:block">{codeLang==='html'?'Preview':'Spustit'}</span></>
+                  }
+                </button>
+              )}
               <button onClick={()=>setIsGitOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-2 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 rounded-xl border border-orange-500/20 text-[10px] font-black">
                 <GitCommit size={13}/><span className="hidden xl:block">Git</span>
@@ -1773,7 +2074,7 @@ export default function App() {
               {codeLang === 'html' && code && (
                 <button onClick={handleZipExport}
                   className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/20 text-[10px] font-black"
-                  title="Stáhnout jako ZIP archiv (index.html + style.css + script.js + README)">
+                  title="Stáhnout jako ZIP archiv">
                   <Package size={13}/><span className="hidden xl:block">ZIP</span>
                 </button>
               )}
@@ -1794,22 +2095,49 @@ export default function App() {
           {/* Obsah: Editor nebo iframe Preview */}
           {showPreview && codeLang === 'html' ? (
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Preview toolbar */}
-              <div className="px-4 py-2 bg-emerald-900/20 border-b border-emerald-500/10 flex items-center gap-2 shrink-0">
+              <div className="px-4 py-2 border-b flex items-center gap-2 shrink-0" style={{background:'rgba(16,185,129,0.1)', borderColor:'rgba(16,185,129,0.15)'}}>
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
-                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500/60">Live HTML Preview</span>
-                <span className="text-[9px] text-gray-700 ml-auto font-mono">sandbox — žádný internet</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500/70">Live HTML Preview</span>
+                <span className="text-[9px] ml-auto font-mono" style={{color:'var(--text-muted)'}}>sandbox</span>
               </div>
-              <iframe
-                key={code}
-                srcDoc={code}
-                className="flex-1 w-full bg-white"
-                sandbox="allow-scripts allow-same-origin"
-                title="HTML Preview"
-              />
+              <iframe key={code} srcDoc={code} className="flex-1 w-full bg-white" sandbox="allow-scripts allow-same-origin" title="HTML Preview"/>
             </div>
           ) : (
-            <CodeEditor code={code} lang={codeLang}/>
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+              <CodeEditor code={code} lang={codeLang} isEditing={isEditing} onChange={setCode}/>
+
+              {/* OUTPUT PANEL */}
+              {runOutput && (
+                <div className={`shrink-0 border-t overflow-hidden`} style={{borderColor:'var(--border)'}}>
+                  {/* Output header */}
+                  <div className={`px-4 py-2 flex items-center justify-between`}
+                    style={{background: runOutput.status==='ok' ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'}}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${runOutput.status==='ok'?'bg-green-500':'bg-red-500'}`}/>
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${runOutput.status==='ok'?'text-green-400':'text-red-400'}`}>
+                        {runOutput.status==='ok' ? '✓ Výstup' : '✗ Chyba'}
+                      </span>
+                      {runOutput.duration_ms > 0 && (
+                        <span className="text-[9px] font-mono" style={{color:'var(--text-muted)'}}>
+                          {runOutput.duration_ms < 1000 ? `${runOutput.duration_ms}ms` : `${(runOutput.duration_ms/1000).toFixed(2)}s`}
+                        </span>
+                      )}
+                    </div>
+                    <button onClick={()=>setRunOutput(null)} className="p-1 rounded hover:opacity-70" style={{color:'var(--text-muted)'}}>
+                      <X size={12}/>
+                    </button>
+                  </div>
+                  {/* Output content */}
+                  <pre className="px-4 py-3 font-mono text-[12px] leading-relaxed overflow-auto custom-scrollbar max-h-48 whitespace-pre-wrap"
+                    style={{
+                      background: 'var(--bg-toolbar)',
+                      color: runOutput.status==='ok' ? 'var(--text-primary)' : '#f87171',
+                    }}>
+                    {runOutput.output}
+                  </pre>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Status bar */}

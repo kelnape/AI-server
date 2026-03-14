@@ -13,9 +13,9 @@ import io
 import uuid
 from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import TypedDict, Annotated, Sequence, Optional
 from langgraph.graph import StateGraph, END
@@ -50,11 +50,35 @@ SUDO_PASSWORD  = os.getenv("SUDO_PASSWORD", "")
 DB_PATH        = os.path.join(BASE_DIR, "system_data.db")
 CHROMA_PATH    = os.path.join(BASE_DIR, "chroma_db")
 
+# --- BEZPEČNOST ---
+API_SECRET = os.getenv("API_SECRET", "")
+# Endpointy které nevyžadují autentizaci (health check)
+PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/api/health"}
+
 # --- GIT KONFIGURACE ---
-GIT_REPO_PATH  = os.getenv("GIT_REPO_PATH", BASE_DIR)   # kořen git repozitáře
+GIT_REPO_PATH  = os.getenv("GIT_REPO_PATH", BASE_DIR)
 GIT_USER_NAME  = os.getenv("GIT_USER_NAME", "Engineering AI")
 GIT_USER_EMAIL = os.getenv("GIT_USER_EMAIL", "ai@kelnape.eu")
-GIT_TOKEN      = os.getenv("GIT_TOKEN", "")              # GitHub Personal Access Token
+GIT_TOKEN      = os.getenv("GIT_TOKEN", "")
+
+# --- TELEGRAM ---
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
+async def telegram_notify(message: str):
+    """Pošle zprávu přes Telegram bota. Tiše selže pokud není nakonfigurováno."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        import urllib.request
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": message,
+                           "parse_mode": "Markdown"}).encode()
+        req = urllib.request.Request(url, data=data,
+              headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
 
 CB = "`" * 3
 SESSION_HISTORY = []
@@ -87,25 +111,57 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS task_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        query TEXT, response TEXT, code TEXT, date TEXT, model TEXT
+        task_id TEXT,
+        query TEXT, response TEXT, code TEXT, date TEXT, model TEXT,
+        quality_score REAL DEFAULT NULL,
+        quality_reason TEXT DEFAULT NULL,
+        feedback INTEGER DEFAULT NULL
     )''')
-    # Tabulka vlastních promptů agentů
     c.execute('''CREATE TABLE IF NOT EXISTS agent_prompts (
         agent_id TEXT PRIMARY KEY,
         custom_prompt TEXT,
         updated_at TEXT
     )''')
-    # Tabulka telemetrie — tokeny a cena per agent per úkol
     c.execute('''CREATE TABLE IF NOT EXISTS telemetry (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT, agent_id TEXT, model TEXT,
+        input_tokens INTEGER, output_tokens INTEGER,
+        cost_usd REAL, duration_ms INTEGER, date TEXT
+    )''')
+    # Fronta úkolů — batch zpracování
+    c.execute('''CREATE TABLE IF NOT EXISTS task_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message TEXT NOT NULL,
+        model_id TEXT DEFAULT NULL,
+        status TEXT DEFAULT 'pending',
+        result TEXT DEFAULT NULL,
+        code TEXT DEFAULT NULL,
+        lang TEXT DEFAULT NULL,
+        quality_score REAL DEFAULT NULL,
+        created_at TEXT,
+        started_at TEXT,
+        finished_at TEXT
+    )''')
+    # Feedback uživatele na odpovědi
+    c.execute('''CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT,
-        agent_id TEXT,
-        model TEXT,
-        input_tokens INTEGER,
-        output_tokens INTEGER,
-        cost_usd REAL,
-        duration_ms INTEGER,
+        query TEXT,
+        response TEXT,
+        thumbs INTEGER,
+        comment TEXT DEFAULT NULL,
         date TEXT
+    )''')
+    # Noční analýza — logy a doporučení
+    c.execute('''CREATE TABLE IF NOT EXISTS night_analysis (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
+        total_tasks INTEGER,
+        avg_quality REAL,
+        failed_tasks INTEGER,
+        top_issues TEXT,
+        recommendations TEXT,
+        prompt_suggestions TEXT
     )''')
     conn.commit(); conn.close()
 
@@ -141,6 +197,105 @@ def team_identity(agent_id: str = "") -> str:
     if extra:
         return BASE_TEAM_IDENTITY + f"\n\n--- VLASTNÍ INSTRUKCE ({agent_id}) ---\n{extra}\n"
     return BASE_TEAM_IDENTITY
+
+# =============================================================================
+# KONTEXT PROJEKTU — automaticky načtený při každém úkolu
+# =============================================================================
+
+def build_project_context() -> str:
+    """
+    Sestaví živý kontext projektu z filesystem + git.
+    Volá se při každém chat requestu — agenti vždy vědí kde jsou.
+    """
+    ctx_parts = []
+
+    # 1. Git stav
+    try:
+        branch, ok = _git_run(["branch", "--show-current"])
+        if ok and branch.strip():
+            ctx_parts.append(f"Git větev: {branch.strip()}")
+
+        status, _ = _git_run(["status", "--short"])
+        changed = [l for l in status.strip().splitlines() if l.strip()]
+        if changed:
+            ctx_parts.append(f"Změněné soubory ({len(changed)}): " +
+                             ", ".join(l[3:].strip() for l in changed[:8]))
+        else:
+            ctx_parts.append("Git status: čistý repozitář")
+
+        last_commit, _ = _git_run(["log", "--oneline", "-3"])
+        if last_commit.strip():
+            ctx_parts.append("Poslední commity:\n" +
+                             "\n".join(f"  {l}" for l in last_commit.strip().splitlines()))
+    except Exception:
+        pass
+
+    # 2. Struktura projektu (top-level + backend/frontend)
+    try:
+        entries = []
+        for entry in sorted(os.listdir(GIT_REPO_PATH)):
+            if entry.startswith('.') or entry in ('node_modules','__pycache__','.venv','dist','chroma_db'):
+                continue
+            full = os.path.join(GIT_REPO_PATH, entry)
+            entries.append(f"  {'📁' if os.path.isdir(full) else '📄'} {entry}")
+        if entries:
+            ctx_parts.append("Struktura projektu:\n" + "\n".join(entries[:20]))
+    except Exception:
+        pass
+
+    # 3. Tech stack — requirements.txt
+    try:
+        req_path = os.path.join(GIT_REPO_PATH, "requirements.txt")
+        if os.path.exists(req_path):
+            with open(req_path) as f:
+                pkgs = [l.strip().split("==")[0].split(">=")[0]
+                        for l in f.read().splitlines()
+                        if l.strip() and not l.startswith("#")][:15]
+            if pkgs:
+                ctx_parts.append(f"Python závislosti: {', '.join(pkgs)}")
+    except Exception:
+        pass
+
+    # 4. Tech stack — package.json (frontend)
+    try:
+        pkg_path = os.path.join(GIT_REPO_PATH, "frontend", "package.json")
+        if os.path.exists(pkg_path):
+            with open(pkg_path) as f:
+                pkg = json.load(f)
+            deps = list({**pkg.get("dependencies",{}), **pkg.get("devDependencies",{})}.keys())[:12]
+            if deps:
+                ctx_parts.append(f"Frontend závislosti: {', '.join(deps)}")
+    except Exception:
+        pass
+
+    # 5. Systémové info
+    try:
+        import platform
+        ctx_parts.append(f"Server: {platform.system()} {platform.machine()} | "
+                        f"Python {platform.python_version()} | "
+                        f"CPU {psutil.cpu_percent(interval=None):.0f}% | "
+                        f"RAM {psutil.virtual_memory().percent:.0f}%")
+    except Exception:
+        pass
+
+    if not ctx_parts:
+        return ""
+
+    return "\n\n--- KONTEXT PROJEKTU (live) ---\n" + "\n".join(ctx_parts) + "\n---\n"
+
+# Cache kontextu — obnovuje se každých 60 sekund
+_project_ctx_cache: dict = {"ts": 0, "ctx": ""}
+
+def get_project_context() -> str:
+    now = time.time()
+    if now - _project_ctx_cache["ts"] > 60:
+        _project_ctx_cache["ctx"] = build_project_context()
+        _project_ctx_cache["ts"] = now
+    return _project_ctx_cache["ctx"]
+
+def team_identity_with_context(agent_id: str = "") -> str:
+    """team_identity + živý kontext projektu."""
+    return team_identity(agent_id) + get_project_context()
 
 # --- STAV GRAFU ---
 class AgentState(TypedDict):
@@ -448,10 +603,312 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app):
     asyncio.create_task(system_monitor_loop())
+    asyncio.create_task(night_analysis_loop())
     yield
 
 app = FastAPI(title="Engineering AI Backend v9.2", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# =============================================================================
+# BEZPEČNOST — API KEY MIDDLEWARE + RATE LIMITING
+# =============================================================================
+
+# Rate limiting — max požadavků za okno
+import collections
+_rate_buckets: dict = collections.defaultdict(list)
+RATE_LIMIT_REQUESTS = 60   # max požadavků
+RATE_LIMIT_WINDOW   = 60   # za N sekund
+
+def _check_rate_limit(ip: str) -> bool:
+    """Vrátí True pokud je požadavek v limitu, False pokud překročen."""
+    now = time.time()
+    bucket = _rate_buckets[ip]
+    # Smaž staré záznamy
+    _rate_buckets[ip] = [t for t in bucket if now - t < RATE_LIMIT_WINDOW]
+    if len(_rate_buckets[ip]) >= RATE_LIMIT_REQUESTS:
+        return False
+    _rate_buckets[ip].append(now)
+    return True
+
+# Sledování neúspěšných pokusů o autentizaci
+_auth_failures: dict = collections.defaultdict(list)
+AUTH_LOCKOUT_ATTEMPTS = 10   # po N neúspěších
+AUTH_LOCKOUT_WINDOW   = 300  # na N sekund (5 minut)
+
+def _is_locked_out(ip: str) -> bool:
+    now = time.time()
+    _auth_failures[ip] = [t for t in _auth_failures[ip] if now - t < AUTH_LOCKOUT_WINDOW]
+    return len(_auth_failures[ip]) >= AUTH_LOCKOUT_ATTEMPTS
+
+def _record_auth_failure(ip: str):
+    _auth_failures[ip].append(time.time())
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    ip = request.client.host if request.client else "unknown"
+    path = request.url.path
+
+    # Veřejné cesty — bez autentizace
+    if path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    # Rate limiting
+    if not _check_rate_limit(ip):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too Many Requests — zpomal."}
+        )
+
+    # Pokud není nastaven API_SECRET, autentizace je vypnutá (vývoj)
+    if not API_SECRET:
+        return await call_next(request)
+
+    # Zkontroluj lockout
+    if _is_locked_out(ip):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "IP dočasně zablokována — příliš mnoho neúspěšných pokusů."}
+        )
+
+    # Ověř API klíč — z headeru X-API-Key nebo query parametru ?key=
+    provided_key = (
+        request.headers.get("X-API-Key") or
+        request.query_params.get("key") or
+        ""
+    )
+
+    if provided_key != API_SECRET:
+        _record_auth_failure(ip)
+        failures = len(_auth_failures[ip])
+        remaining = AUTH_LOCKOUT_ATTEMPTS - failures
+        return JSONResponse(
+            status_code=401,
+            content={
+                "detail": "Neplatný API klíč.",
+                "remaining_attempts": max(0, remaining)
+            }
+        )
+
+    return await call_next(request)
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "auth_enabled": bool(API_SECRET), "version": "9.2"}
+
+# =============================================================================
+# POST-TASK JOBS — quality scoring + Telegram (běží na pozadí)
+# =============================================================================
+
+async def _post_task_jobs(task_id: str, state: dict, query: str,
+                          response: str, code: str, lang: str, model: str):
+    """Spustí se po dokončení úkolu — quality scoring + Telegram notifikace."""
+    await asyncio.sleep(0.5)  # nech stream dorazit na frontend
+
+    # 1. Quality scoring (synchronní LLM call v threadu)
+    score, reason = None, ""
+    try:
+        llm = build_llm(model)
+        sys_msg = SystemMessage(content="""Jsi hodnotitel kvality AI výstupu.
+Ohodnoť odpověď na škále 1-10 a stručně zdůvodni.
+ODPOVĚZ POUZE TAKTO:
+SCORE: <číslo>
+REASON: <1 věta česky>""")
+        eval_content = f"DOTAZ: {query[:400]}\n\nODPOVĚĎ: {response[:1500]}"
+        result = llm.invoke([sys_msg, HumanMessage(content=eval_content)])
+        for line in (result.content or "").splitlines():
+            if line.startswith("SCORE:"):
+                try: score = min(10.0, max(1.0, float(line.split(":",1)[1].strip())))
+                except: pass
+            elif line.startswith("REASON:"):
+                reason = line.split(":",1)[1].strip()
+        if score is not None:
+            conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+            cur.execute('UPDATE task_history SET quality_score=?,quality_reason=? WHERE task_id=?',
+                        (score, reason, task_id))
+            conn.commit(); conn.close()
+    except Exception: pass
+
+    # 2. Telegram notifikace
+    has_code = bool(code.strip())
+    score_emoji = "🟢" if (score or 0) >= 7 else "🟡" if (score or 0) >= 5 else "🔴"
+    quality_line = f"{score_emoji} Kvalita: *{score}/10* — {reason}" if score else ""
+    short_query = query[:120] + ("..." if len(query) > 120 else "")
+    msg = (f"✅ *Úkol dokončen*\n"
+           f"❓ _{short_query}_\n"
+           f"{'💾 Kód vygenerován (' + lang + ')' if has_code else '💬 Textová odpověď'}\n"
+           f"{quality_line}")
+    await telegram_notify(msg)
+
+# =============================================================================
+# NOČNÍ ANALÝZA — spouští se každou noc ve 02:00
+# =============================================================================
+
+async def night_analysis_loop():
+    """Každou noc analyzuje chyby, trendy kvality a generuje doporučení."""
+    while True:
+        now = datetime.now()
+        # Počkej do 02:00
+        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target = target.replace(day=target.day + 1)
+        wait_secs = (target - now).total_seconds()
+        await asyncio.sleep(wait_secs)
+
+        await run_night_analysis()
+
+async def run_night_analysis():
+    """Provede analýzu posledních 24 hodin a uloží doporučení."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        yesterday = (datetime.now().replace(hour=0, minute=0, second=0)
+                     ).strftime("%Y-%m-%d")
+
+        # Statistiky z posledního dne
+        cur.execute('''SELECT COUNT(*), AVG(quality_score),
+                       SUM(CASE WHEN quality_score < 5 THEN 1 ELSE 0 END),
+                       GROUP_CONCAT(quality_reason, " | ")
+                       FROM task_history
+                       WHERE date >= ? AND quality_score IS NOT NULL''', (yesterday,))
+        row = cur.fetchone()
+        if not row or not row[0]:
+            conn.close(); return
+
+        total, avg_q, failed, reasons = row
+        avg_q = round(avg_q or 0, 1)
+
+        # Telemetrie za den
+        cur.execute('''SELECT agent_id, SUM(cost_usd) FROM telemetry
+                       WHERE date >= ? GROUP BY agent_id ORDER BY SUM(cost_usd) DESC LIMIT 5''',
+                    (yesterday,))
+        top_agents = cur.fetchall()
+        conn.close()
+
+        # Nech LLM vygenerovat doporučení
+        llm = build_llm(ACTIVE_MODEL)
+        analysis_prompt = f"""Jsi analytik AI systému. Analyzuj data za poslední den a vytvoř doporučení.
+
+STATISTIKY (posledních 24h):
+- Celkem úkolů: {total}
+- Průměrná kvalita: {avg_q}/10
+- Selhání (kvalita < 5): {failed}
+- Nejdražší agenti: {', '.join(f'{a[0]}: ${a[1]:.4f}' for a in top_agents)}
+- Problémy: {(reasons or '')[:800]}
+
+Vytvoř:
+1. TOP_ISSUES: 3 hlavní problémy (1 věta každý)
+2. RECOMMENDATIONS: 3 konkrétní doporučení pro zlepšení
+3. PROMPT_SUGGESTIONS: Navrhni konkrétní úpravy promptů pro nejproblematičtějšího agenta
+
+Odpověz česky, strukturovaně."""
+
+        result = llm.invoke([HumanMessage(content=analysis_prompt)])
+        analysis_text = result.content or ""
+
+        # Ulož do DB
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('''INSERT INTO night_analysis
+                       (date,total_tasks,avg_quality,failed_tasks,top_issues,recommendations,prompt_suggestions)
+                       VALUES (?,?,?,?,?,?,?)''',
+                    (datetime.now().isoformat(), total, avg_q, failed or 0,
+                     analysis_text[:500], analysis_text[500:1000], analysis_text[1000:1500]))
+        conn.commit(); conn.close()
+
+        # Telegram shrnutí
+        trend = "📈" if avg_q >= 7 else "📉" if avg_q < 5 else "➡️"
+        await telegram_notify(
+            f"🌙 *Noční analýza dokončena*\n"
+            f"{trend} Průměrná kvalita: *{avg_q}/10*\n"
+            f"📊 Úkolů: {total} | Selhání: {failed or 0}\n"
+            f"💰 Celková cena: ${sum(a[1] for a in top_agents):.4f}\n"
+            f"_Detaily v /api/night-analysis_"
+        )
+    except Exception as e:
+        await telegram_notify(f"⚠️ Noční analýza selhala: {str(e)[:100]}")
+
+# =============================================================================
+# FRONTA ÚKOLŮ — batch zpracování
+# =============================================================================
+
+# Globální fronta — zpracovává se sekvenčně
+_queue_processing = False
+
+async def process_queue():
+    """Zpracovává úkoly z fronty sekvenčně."""
+    global _queue_processing
+    if _queue_processing:
+        return
+    _queue_processing = True
+    try:
+        while True:
+            conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+            cur.execute("SELECT id,message,model_id FROM task_queue WHERE status='pending' ORDER BY id LIMIT 1")
+            row = cur.fetchone(); conn.close()
+            if not row:
+                break
+
+            qid, message, model_id = row
+            model_id = model_id or ACTIVE_MODEL
+
+            # Označ jako zpracovávaný
+            conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+            cur.execute("UPDATE task_queue SET status='running', started_at=? WHERE id=?",
+                        (datetime.now().isoformat(), qid))
+            conn.commit(); conn.close()
+
+            # Telegram — start
+            await telegram_notify(f"⚙️ *Fronta: spouštím úkol #{qid}*\n_{message[:100]}_")
+
+            # Spusť přes pipeline
+            result_text, result_code, result_lang = "", "", "python"
+            try:
+                task_id = f"queue_{qid}_{int(time.time())}"
+                state = {
+                    "messages": [HumanMessage(content=message)],
+                    "iterations": 0, "status": "", "route": "",
+                    "error_log": "", "plan": [], "current_step": -1,
+                    "model_id": model_id, "task_id": task_id,
+                    "project_specs": {}, "is_web_project": False,
+                }
+                history = []
+                async for output in agent_app.astream(state):
+                    for node, update in output.items():
+                        if update and "messages" in update:
+                            for m in update["messages"]:
+                                if m and hasattr(m, "content") and m.content:
+                                    history.append(str(m.content))
+
+                if history:
+                    result_text = history[-1]
+                    for l in ["python","bash","html","javascript"]:
+                        found = re.search(rf"{CB}{l}\n(.*?)\n{CB}", "\n".join(history), re.DOTALL)
+                        if found:
+                            result_code = found.group(1).strip()
+                            result_lang = l; break
+                    result_text = re.sub(rf"{CB}.*?{CB}", "", result_text, flags=re.DOTALL).strip()
+
+                status = "done"
+            except Exception as e:
+                result_text = f"Chyba: {str(e)}"
+                status = "failed"
+
+            # Ulož výsledek
+            conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+            cur.execute('''UPDATE task_queue SET status=?,result=?,code=?,lang=?,finished_at=?
+                           WHERE id=?''',
+                        (status, result_text, result_code, result_lang,
+                         datetime.now().isoformat(), qid))
+            conn.commit(); conn.close()
+
+            # Telegram — hotovo
+            emoji = "✅" if status == "done" else "❌"
+            await telegram_notify(
+                f"{emoji} *Fronta: úkol #{qid} dokončen*\n"
+                f"_{message[:80]}_\n"
+                f"{'💾 Kód: ' + result_lang if result_code else '💬 Textová odpověď'}"
+            )
+
+    finally:
+        _queue_processing = False
 
 # --- POMOCNÉ FUNKCE UZLŮ ---
 def _llm(state: AgentState, with_tools: bool = False):
@@ -543,7 +1000,7 @@ def manazer_node(state: AgentState):
     query = str(state["messages"][-1].content if state["messages"] else "").lower()
     is_web = any(w in query for w in WEB_KEYWORDS)
 
-    sys_msg = SystemMessage(content=team_identity("MANAZER") + """
+    sys_msg = SystemMessage(content=team_identity_with_context("MANAZER") + """
     Zvol trasu:
     - [ROUTE:PLANNER] pro velké projekty (e-shopy, komplexní aplikace, weby).
     - [ROUTE:LINUX] pro terminál, bash, Git a HW.
@@ -580,7 +1037,7 @@ def designer_node(state: AgentState):
     if state.get("plan") and 0 <= state["current_step"] < len(state["plan"]):
         plan_info = f"\nAKTUÁLNÍ KROK: {state['plan'][state['current_step']]}"
 
-    sys_msg = SystemMessage(content=team_identity("DESIGNER") + f"""
+    sys_msg = SystemMessage(content=team_identity_with_context("DESIGNER") + f"""
     Jsi Webový Designer — expert na moderní UI/UX.
 
     TVOJE PRAVIDLA:
@@ -602,7 +1059,7 @@ def designer_node(state: AgentState):
     }
 
 def planner_node(state: AgentState):
-    sys_msg = SystemMessage(content=team_identity("PLANNER") + """
+    sys_msg = SystemMessage(content=team_identity_with_context("PLANNER") + """
     Jsi Technický Plánovač. Rozlož zadání na DETAILNÍ kroky.
     PRAVIDLA: 5–10 kroků, technicky specifické, zahrň Rešerši/Arch/Impl/Test/Docs.
     ODPOVĚZ POUZE VALIDNÍM JSON POLEM ŘETĚZCŮ.
@@ -632,7 +1089,7 @@ def sysadmin_node(state: AgentState):
     git_remote, _ = _git_run(["remote", "-v"])
     git_branch, _ = _git_run(["branch", "--show-current"])
 
-    sys_msg = SystemMessage(content=team_identity("SYSADMIN") + f"""
+    sys_msg = SystemMessage(content=team_identity_with_context("SYSADMIN") + f"""
 Jsi Senior SysAdmin a Git specialista pro projekt Engineering AI System.
 
 PROSTŘEDÍ:
@@ -683,7 +1140,7 @@ PRAVIDLA:
     return {"messages": [ai_resp], "status": "DONE"}
 
 def vyzkumnik_node(state: AgentState):
-    sys_msg = SystemMessage(content=team_identity("VYZKUMNIK") + "Jsi Výzkumník. Hledej přes search_internet.")
+    sys_msg = SystemMessage(content=team_identity_with_context("VYZKUMNIK") + "Jsi Výzkumník. Hledej přes search_internet.")
     ai_resp = _llm_tracked(state, "VYZKUMNIK", with_tools=True).invoke([sys_msg] + _msgs(state))
     tool_results = execute_tool_calls(ai_resp)
     if tool_results:
@@ -704,7 +1161,7 @@ def expert_node(state: AgentState):
     if vector_db and last_content:
         docs = vector_db.similarity_search(last_content, k=3)
         kontext = "\nZNALOSTI Z KNIHOVNY:\n" + "\n".join([d.page_content for d in docs])
-    sys_msg = SystemMessage(content=team_identity("EXPERT") + f"""
+    sys_msg = SystemMessage(content=team_identity_with_context("EXPERT") + f"""
     Jsi Expert na analýzu dokumentů, obrázků a technických manuálů.
     Pokud byla přiložena příloha (PDF, obrázek, soubor), analyzuj ji podrobně.
     Odpověz technicky přesně a strukturovaně.
@@ -730,7 +1187,7 @@ def architekt_node(state: AgentState):
     if state.get("plan") and 0 <= state["current_step"] < len(state["plan"]):
         plan_info = f"\nKROK ({state['current_step']+1}/{len(state['plan'])}): {state['plan'][state['current_step']]}"
 
-    sys_msg = SystemMessage(content=team_identity("ARCHITEKT") + f"""
+    sys_msg = SystemMessage(content=team_identity_with_context("ARCHITEKT") + f"""
     Jsi Architekt. Navrhni kód — použij {CB}python, {CB}bash nebo {CB}html podle kontextu.
     {plan_info}{pravidla}{specs_text}
     """)
@@ -740,7 +1197,7 @@ def auditor_node(state: AgentState):
     last_msg = next((str(m.content) for m in reversed(state["messages"]) if m.content and CB in str(m.content)), "")
     if not last_msg:
         return {"messages": [AIMessage(content="⚠️ Kód k auditu nenalezen.")], "status": "PASS"}
-    sys_msg = SystemMessage(content=team_identity("AUDITOR") + "Zkontroluj kód. Odpověz PASS nebo FAIL + chyby.")
+    sys_msg = SystemMessage(content=team_identity_with_context("AUDITOR") + "Zkontroluj kód. Odpověz PASS nebo FAIL + chyby.")
     res = _llm_tracked(state, "AUDITOR").invoke([sys_msg, HumanMessage(content=last_msg)])
     status = "PASS" if "PASS" in (res.content or "").upper() else "FAIL"
     error_log = state.get("error_log", "")
@@ -767,21 +1224,80 @@ def tester_node(state: AgentState):
 
 def koder_node(state: AgentState):
     return {"messages": [_llm_tracked(state, "KODER").invoke(
-        [SystemMessage(content=team_identity("KODER") + "Oprav chyby z logu: " + state.get("error_log", ""))]
+        [SystemMessage(content=team_identity_with_context("KODER") + "Oprav chyby z logu: " + state.get("error_log", ""))]
         + _msgs(state))], "iterations": state.get("iterations", 0) + 1}
 
 def reflektor_node(state: AgentState):
     if not state.get("error_log", "").strip():
         return {"messages": [AIMessage(content="🧠 Bez nutnosti reflexe.")], "status": "DONE"}
-    sys_msg = SystemMessage(content=team_identity("REFLEKTOR") + "Analyzuj chyby a vytvoř 'ZLATÉ PRAVIDLO:'.")
+    sys_msg = SystemMessage(content=team_identity_with_context("REFLEKTOR") + "Analyzuj chyby a vytvoř 'ZLATÉ PRAVIDLO:'.")
     res = _llm_tracked(state, "REFLEKTOR").invoke([sys_msg, HumanMessage(content=f"Chyby:\n{state['error_log']}")])
     if vector_db:
         vector_db.add_texts([res.content], metadatas=[{"type": "rule", "date": datetime.now().isoformat()}])
     return {"messages": [AIMessage(content=f"🧠 [SEBEREFLEXE]: {res.content}")], "status": "DONE"}
 
 def finalizer_node(state: AgentState):
-    sys_msg = SystemMessage(content=team_identity("FINALIZER") + "Sestav závěrečné shrnutí pro Kelnapeho.")
+    sys_msg = SystemMessage(content=team_identity_with_context("FINALIZER") + "Sestav závěrečné shrnutí pro Kelnapeho.")
     return {"messages": [_llm_tracked(state, "FINALIZER").invoke([sys_msg] + _msgs(state)[-3:])]}
+
+def quality_node(state: AgentState) -> dict:
+    """
+    Hodnotí kvalitu výstupu na škále 1-10.
+    Ukládá skóre + zdůvodnění do SQLite.
+    Spouští se asynchronně po finalizaci — netlačí uživatele.
+    """
+    try:
+        last_response = ""
+        for m in reversed(state["messages"]):
+            if hasattr(m, "content") and m.content and isinstance(m.content, str):
+                last_response = m.content[:2000]
+                break
+        if not last_response:
+            return {}
+
+        original_query = ""
+        for m in state["messages"]:
+            if hasattr(m, "content") and isinstance(m.content, str):
+                original_query = m.content[:500]
+                break
+
+        sys_msg = SystemMessage(content="""Jsi hodnotitel kvality AI výstupu.
+Ohodnoť následující odpověď na škále 1-10 a stručně zdůvodni.
+
+Kritéria hodnocení:
+- 9-10: Perfektní, přesné, kompletní, funkční
+- 7-8: Dobré, drobné nedostatky
+- 5-6: Průměrné, chybí detaily nebo má chyby
+- 3-4: Slabé, neúplné nebo nepřesné
+- 1-2: Nevyhovující, špatně zodpovězené
+
+ODPOVĚZ POUZE V TOMTO FORMÁTU (bez ničeho jiného):
+SCORE: <číslo 1-10>
+REASON: <1-2 věty česky>
+""")
+        eval_msg = HumanMessage(content=f"DOTAZ: {original_query}\n\nODPOVĚĎ: {last_response}")
+        llm = build_llm(state.get("model_id") or ACTIVE_MODEL)
+        result = llm.invoke([sys_msg, eval_msg])
+
+        score, reason = None, ""
+        for line in (result.content or "").splitlines():
+            if line.startswith("SCORE:"):
+                try: score = float(line.split(":", 1)[1].strip())
+                except: pass
+            elif line.startswith("REASON:"):
+                reason = line.split(":", 1)[1].strip()
+
+        if score is not None:
+            task_id = state.get("task_id", "")
+            try:
+                conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+                cur.execute('UPDATE task_history SET quality_score=?, quality_reason=? WHERE task_id=?',
+                            (score, reason, task_id))
+                conn.commit(); conn.close()
+            except Exception: pass
+    except Exception:
+        pass
+    return {}
 
 # --- SESTAVA GRAFU ---
 workflow = StateGraph(AgentState)
@@ -823,7 +1339,9 @@ class ChatRequest(BaseModel):
     message: str
     files: Optional[list[FileData]] = []
     model_id: Optional[str] = None
-    project_specs: Optional[dict] = {}  # intake formulář
+    project_specs: Optional[dict] = {}       # intake formulář
+    current_editor_code: Optional[str] = ""  # aktuální kód v editoru
+    current_editor_lang: Optional[str] = ""  # jazyk editoru
 
 class LearnRequest(BaseModel):
     query: str
@@ -856,8 +1374,22 @@ async def chat_endpoint(request: ChatRequest):
             effective_model = "gpt-4o"
             yield json.dumps({"type": "info", "message": "📸 Obrázek detekován — přepínám na GPT-4o Vision"}) + "\n"
 
-        # Sestavení zprávy s přílohami
-        human_msg = build_human_message(request.message, processed)
+        # Sestavení zprávy s přílohami + kontextem editoru
+        editor_ctx = ""
+        if request.current_editor_code and request.current_editor_code.strip():
+            lang = request.current_editor_lang or "code"
+            lines = request.current_editor_code.strip().splitlines()
+            # Přidáme jen pokud zpráva odkazuje na kód nebo je to editační dotaz
+            edit_keywords = ["oprav", "uprav", "změň", "přidej", "smaž", "refaktor",
+                             "vylepši", "fix", "kód", "funkc", "třída", "import",
+                             "řádek", "chyb", "error", "bug", "doplň", "zkrať"]
+            msg_lower = request.message.lower()
+            if any(w in msg_lower for w in edit_keywords) or len(lines) == 0:
+                editor_ctx = (f"\n\n--- KÓD V EDITORU ({lang}, {len(lines)} řádků) ---\n"
+                             f"```{lang}\n{request.current_editor_code.strip()}\n```\n---")
+
+        full_message = request.message + editor_ctx
+        human_msg = build_human_message(full_message, processed)
 
         # Pokud jsou soubory, pošleme frontend informaci o zpracování
         if processed.file_names:
@@ -921,8 +1453,9 @@ async def chat_endpoint(request: ChatRequest):
 
             try:
                 conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-                c.execute('INSERT INTO task_history (query,response,code,date,model) VALUES (?,?,?,?,?)',
-                          (request.message, clean_text, code, datetime.now().strftime("%H:%M:%S"), model_id))
+                c.execute('INSERT INTO task_history (task_id,query,response,code,date,model) VALUES (?,?,?,?,?,?)',
+                          (task_id, request.message, clean_text, code,
+                           datetime.now().strftime("%H:%M:%S"), model_id))
                 conn.commit(); conn.close()
             except Exception: pass
 
@@ -931,7 +1464,15 @@ async def chat_endpoint(request: ChatRequest):
             SESSION_HISTORY = SESSION_HISTORY[-(MAX_HISTORY * 2):]
 
             yield json.dumps({"type": "final", "response": clean_text, "code": code,
-                              "lang": lang, "date": datetime.now().strftime("%H:%M:%S"), "model": model_id}) + "\n"
+                              "lang": lang, "date": datetime.now().strftime("%H:%M:%S"),
+                              "model": model_id, "task_id": task_id}) + "\n"
+
+            # Quality scoring + Telegram — na pozadí, neblokuje stream
+            asyncio.create_task(_post_task_jobs(
+                task_id=task_id, state=initial_state,
+                query=request.message, response=clean_text,
+                code=code, lang=lang, model=model_id
+            ))
         except Exception as e:
             yield json.dumps({"type": "error", "message": f"Serverová chyba: {str(e)}"}) + "\n"
 
@@ -1393,6 +1934,260 @@ async def git_commit_endpoint(request: GitCommitRequest):
 async def git_pull_endpoint():
     out, ok = _git_run(["pull", "--rebase"])
     return {"status": "ok" if ok else "error", "out": out}
+
+@app.get("/api/context")
+async def get_context():
+    """Debug endpoint — vrátí živý kontext projektu který dostanou agenti."""
+    _project_ctx_cache["ts"] = 0  # vynutí refresh
+    ctx = get_project_context()
+    return {"context": ctx, "length": len(ctx)}
+
+# =============================================================================
+# SPUŠTĚNÍ KÓDU — /api/run
+# =============================================================================
+
+class RunRequest(BaseModel):
+    code: str
+    lang: str = "python"  # python | bash | javascript
+
+@app.post("/api/run")
+async def run_code(request: RunRequest):
+    """
+    Spustí kód z editoru a vrátí stdout/stderr výstup.
+    Python: temp soubor → python3
+    Bash: temp soubor → bash
+    JavaScript: temp soubor → node
+    """
+    import tempfile
+    lang = request.lang.lower()
+    code = request.code
+
+    try:
+        # Vytvoř temp soubor
+        suffix = {"python": ".py", "bash": ".sh", "javascript": ".js"}.get(lang, ".txt")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as f:
+            f.write(code)
+            tmpfile = f.name
+
+        # Zvol interpreter
+        if lang == "python":
+            cmd = ["python3", tmpfile]
+        elif lang == "bash":
+            cmd = ["bash", tmpfile]
+        elif lang == "javascript":
+            cmd = ["node", tmpfile]
+        else:
+            return {"status": "error", "output": f"Jazyk '{lang}' není podporován pro spuštění.", "duration_ms": 0}
+
+        # Spusť s timeoutem
+        t0 = time.time()
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+            cwd=GIT_REPO_PATH
+        )
+        duration_ms = int((time.time() - t0) * 1000)
+
+        # Sestav výstup
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        output = stdout
+        if stderr:
+            output = (output + "\n\n⚠️ STDERR:\n" + stderr).strip()
+        if not output:
+            output = "(žádný výstup)"
+
+        return {
+            "status": "ok" if result.returncode == 0 else "error",
+            "output": output,
+            "returncode": result.returncode,
+            "duration_ms": duration_ms,
+        }
+
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "output": "⏱️ Timeout — kód běžel déle než 30 sekund.", "duration_ms": 30000}
+    except FileNotFoundError as e:
+        return {"status": "error", "output": f"❌ Interpreter nenalezen: {e}", "duration_ms": 0}
+    except Exception as e:
+        return {"status": "error", "output": f"❌ Chyba: {str(e)}", "duration_ms": 0}
+    finally:
+        try: os.unlink(tmpfile)
+        except: pass
+
+# =============================================================================
+# FEEDBACK API
+# =============================================================================
+
+class FeedbackRequest(BaseModel):
+    task_id: str
+    query: str
+    response: str
+    thumbs: int   # 1 = palec nahoru, -1 = palec dolů
+    comment: str = ""
+
+@app.post("/api/feedback")
+async def post_feedback(req: FeedbackRequest):
+    """Uloží feedback uživatele (👍/👎) k odpovědi."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('INSERT INTO feedback (task_id,query,response,thumbs,comment,date) VALUES (?,?,?,?,?,?)',
+                    (req.task_id, req.query[:500], req.response[:500],
+                     req.thumbs, req.comment, datetime.now().isoformat()))
+        # Taky aktualizuj task_history
+        cur.execute('UPDATE task_history SET feedback=? WHERE task_id=?',
+                    (req.thumbs, req.task_id))
+        conn.commit(); conn.close()
+
+        # Pokud je feedback negativní → Telegram
+        if req.thumbs == -1:
+            await telegram_notify(
+                f"👎 *Negativní feedback*\n"
+                f"_{req.query[:100]}_\n"
+                f"{('💬 ' + req.comment) if req.comment else ''}"
+            )
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/feedback")
+async def get_feedback(limit: int = 20):
+    """Vrátí posledních N feedbacků."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('SELECT task_id,query,thumbs,comment,date FROM feedback ORDER BY id DESC LIMIT ?', (limit,))
+        rows = cur.fetchall(); conn.close()
+        return [{"task_id":r[0],"query":r[1],"thumbs":r[2],"comment":r[3],"date":r[4]} for r in rows]
+    except Exception: return []
+
+# =============================================================================
+# FRONTA ÚKOLŮ API
+# =============================================================================
+
+class QueueRequest(BaseModel):
+    message: str
+    model_id: Optional[str] = None
+
+@app.post("/api/queue")
+async def add_to_queue(req: QueueRequest):
+    """Přidá úkol do fronty ke zpracování."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('INSERT INTO task_queue (message,model_id,status,created_at) VALUES (?,?,?,?)',
+                    (req.message, req.model_id, 'pending', datetime.now().isoformat()))
+        qid = cur.lastrowid
+        conn.commit(); conn.close()
+        # Spusť zpracování na pozadí
+        asyncio.create_task(process_queue())
+        return {"status": "ok", "queue_id": qid,
+                "message": f"Úkol #{qid} přidán do fronty."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/queue")
+async def get_queue():
+    """Vrátí stav fronty úkolů."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('''SELECT id,message,status,result,code,lang,quality_score,
+                              created_at,started_at,finished_at
+                       FROM task_queue ORDER BY id DESC LIMIT 30''')
+        rows = cur.fetchall(); conn.close()
+        return [{
+            "id": r[0], "message": r[1], "status": r[2],
+            "result": r[3], "code": r[4], "lang": r[5],
+            "quality_score": r[6],
+            "created_at": r[7], "started_at": r[8], "finished_at": r[9],
+        } for r in rows]
+    except Exception: return []
+
+@app.delete("/api/queue/{queue_id}")
+async def delete_queue_item(queue_id: int):
+    """Smaže úkol z fronty (pouze pending)."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute("DELETE FROM task_queue WHERE id=? AND status='pending'", (queue_id,))
+        conn.commit(); conn.close()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# NOČNÍ ANALÝZA API
+# =============================================================================
+
+@app.get("/api/night-analysis")
+async def get_night_analysis(limit: int = 7):
+    """Vrátí výsledky posledních N nočních analýz."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('''SELECT date,total_tasks,avg_quality,failed_tasks,
+                              top_issues,recommendations,prompt_suggestions
+                       FROM night_analysis ORDER BY id DESC LIMIT ?''', (limit,))
+        rows = cur.fetchall(); conn.close()
+        return [{"date":r[0],"total_tasks":r[1],"avg_quality":r[2],"failed_tasks":r[3],
+                 "top_issues":r[4],"recommendations":r[5],"prompt_suggestions":r[6]} for r in rows]
+    except Exception: return []
+
+@app.post("/api/night-analysis/run")
+async def trigger_night_analysis():
+    """Manuálně spustí noční analýzu (pro testování)."""
+    asyncio.create_task(run_night_analysis())
+    return {"status": "ok", "message": "Analýza spuštěna na pozadí."}
+
+# =============================================================================
+# TELEGRAM TEST API
+# =============================================================================
+
+@app.post("/api/telegram/test")
+async def test_telegram():
+    """Otestuje Telegram notifikace."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return {"status": "not_configured",
+                "message": "Nastav TELEGRAM_BOT_TOKEN a TELEGRAM_CHAT_ID v .env"}
+    await telegram_notify(
+        "🤖 *Engineering AI System v9.2*\n"
+        "✅ Telegram notifikace fungují!\n"
+        f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+    )
+    return {"status": "ok", "message": "Testovací zpráva odeslána."}
+
+@app.get("/api/quality-stats")
+async def get_quality_stats():
+    """Agregované statistiky kvality odpovědí."""
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        cur.execute('''SELECT
+            COUNT(*) as total,
+            AVG(quality_score) as avg_q,
+            MIN(quality_score) as min_q,
+            MAX(quality_score) as max_q,
+            SUM(CASE WHEN quality_score >= 8 THEN 1 ELSE 0 END) as excellent,
+            SUM(CASE WHEN quality_score >= 6 AND quality_score < 8 THEN 1 ELSE 0 END) as good,
+            SUM(CASE WHEN quality_score < 6 THEN 1 ELSE 0 END) as poor,
+            SUM(CASE WHEN feedback = 1 THEN 1 ELSE 0 END) as thumbs_up,
+            SUM(CASE WHEN feedback = -1 THEN 1 ELSE 0 END) as thumbs_down
+            FROM task_history WHERE quality_score IS NOT NULL''')
+        r = cur.fetchone()
+
+        # Trend posledních 7 dní
+        cur.execute('''SELECT DATE(date), AVG(quality_score)
+                       FROM task_history WHERE quality_score IS NOT NULL
+                       GROUP BY DATE(date) ORDER BY DATE(date) DESC LIMIT 7''')
+        trend = [{"date": row[0], "avg": round(row[1] or 0, 1)} for row in cur.fetchall()]
+        conn.close()
+
+        return {
+            "total_rated": r[0] or 0,
+            "avg_quality": round(r[1] or 0, 1),
+            "min": r[2], "max": r[3],
+            "excellent": r[4] or 0,
+            "good": r[5] or 0,
+            "poor": r[6] or 0,
+            "thumbs_up": r[7] or 0,
+            "thumbs_down": r[8] or 0,
+            "trend": trend
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
