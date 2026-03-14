@@ -18,3 +18,4 @@ pyvenv.cfg
 test/token.json
 test/photos_token_v3.json
 test/*.json
+test/
