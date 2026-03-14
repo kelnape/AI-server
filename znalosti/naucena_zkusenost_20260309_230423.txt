@@ -1,0 +1,26 @@
+--- NAUČENÁ ZKUŠENOST ---
+ZADÁNÍ / PROBLÉM:
+Napiš python skript pro Fibonacciho posloupnost.
+
+Ověřené řešení:
+Omlouvám se za chybu. Vzhledem k tomu, že nemohu interagovat s uživatelským vstupem v tomto prostředí, mohu upravit skript tak, aby měl pevně stanovený počet členů Fibonacciho posloupnosti. Zde je upravená verze:
+
+```python
+def fibonacci(n):
+    fib_sequence = []
+    a, b = 0, 1
+    for _ in range(n):
+        fib_sequence.append(a)
+        a, b = b, a + b
+    return fib_sequence
+
+# Stanovený počet členů Fibonacciho posloupnosti
+num_terms = 10  # Můžete změnit toto číslo na libovolný jiný počet
+result = fibonacci(num_terms)
+
+print("Fibonacciho posloupnost:")
+print(result)
+```
+
+Tento skript nyní automaticky generuje a zobrazuje prvních 10 členů Fibonacciho posloupnosti. Můžete změnit hodnotu `num_terms` na libovolné jiné číslo, pokud chcete zobrazit jiný počet členů.
+-------------------------

@@ -1,0 +1,18 @@
+import random
+import pandas as pd
+
+def generate_lottery_numbers(num_columns=10, num_numbers=6, max_number=49):
+    lottery_columns = []
+    for _ in range(num_columns):
+        column = random.sample(range(1, max_number + 1), num_numbers)
+        lottery_columns.append(sorted(column))  # Seřadíme čísla pro lepší přehlednost
+    return lottery_columns
+
+def save_to_csv(data, filename='lottery_numbers.csv'):
+    df = pd.DataFrame(data)
+    df.to_csv(filename, index=False, header=False)
+
+if __name__ == "__main__":
+    lottery_numbers = generate_lottery_numbers()
+    save_to_csv(lottery_numbers)
+    print("Losování bylo úspěšné! Výsledky byly uloženy do souboru 'lottery_numbers.csv'.")
