@@ -1,0 +1,31 @@
+import time
+import nidaqmx
+
+# Konfigurace DAQ zařízení
+with nidaqmx.Task() as task:
+    # Přidání kanálů pro vstupy a výstupy
+    task.di_channels.add_di_channel('Dev1/port0/line0')  # HR signál
+    task.do_channels.add_do_channel('Dev1/port1/line0')  # Výstup pro motor
+    task.do_channels.add_do_channel('Dev1/port1/line1')  # Reverzní výstup
+
+    # Spuštění motoru
+    task.write([1], auto_start=True)  # Spustí motor
+
+    while True:
+        hr_signal = task.read()
+        if hr_signal == 0:  # Zastavení při změně HR 1-0
+            task.write([0])  # Zastaví motor
+            break
+        time.sleep(0.1)  # Kontrola každých 100 ms
+
+    # Spuštění reverzního výstupu
+    task.write([1], auto_start=True)  # Spustí reverzní motor
+
+    while True:
+        home_signal = task.read()
+        if home_signal == 1:  # Zastavení při změně HOME 0-1
+            task.write([0])  # Zastaví reverzní motor
+            break
+        time.sleep(0.1)  # Kontrola každých 100 ms
+
+# Konec programu

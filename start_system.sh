@@ -1,48 +1,45 @@
 #!/bin/bash
 
-Název tmux relace
+echo "🚀 Spouštím AI systém..."
 
-SESSION="kelnape"
+BASE_DIR=~/moje_prostredi
+FRONTEND_DIR=$BASE_DIR/frontend
 
-Cesta k vašemu projektu (upravte, pokud se liší)
+# Aktivace python prostředí
+echo "🐍 Aktivuji Python prostředí..."
+source $BASE_DIR/venv/bin/activate
 
-PROJECT_DIR=~/moje_prostredi
+# Backend
+echo "⚙️ Spouštím FastAPI backend..."
+cd $BASE_DIR
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload > backend.log 2>&1 &
 
-Zkontrolujeme, zda relace již neexistuje
+BACKEND_PID=$!
 
-tmux has-session -t $SESSION 2>/dev/null
+# Frontend
+echo "🎨 Spouštím React frontend..."
+cd $FRONTEND_DIR
+npm run dev > frontend.log 2>&1 &
 
-if [ $? != 0 ]; then
-echo "🚀 Startuji KELNAPE Tým v tmuxu..."
+FRONTEND_PID=$!
 
-Vytvoříme novou relaci a první okno pro BACKEND
-
-tmux new-session -d -s $SESSION -n "backend"
-
-Příkazy pro Backend
-
-tmux send-keys -t $SESSION:backend "cd $PROJECT_DIR" C-m
-tmux send-keys -t $SESSION:backend "source bin/activate" C-m
-tmux send-keys -t $SESSION:backend "python main.py" C-m
-
-Vytvoříme druhé okno pro FRONTEND
-
-tmux new-window -t $SESSION -n "frontend"
-
-Příkazy pro Frontend
-
-tmux send-keys -t $SESSION:frontend "cd $PROJECT_DIR/frontend" C-m
-tmux send-keys -t $SESSION:frontend "npm run dev" C-m
-
-Vrátíme se na okno s backendem jako výchozí
-
-tmux select-window -t $SESSION:backend
-
-echo "✅ Systém nastartován."
-else
-echo "⚠️ Systém už běží v relaci '$SESSION'."
+# Cloudflare tunnel (pokud existuje)
+if command -v cloudflared &> /dev/null
+then
+  echo "🌐 Spouštím Cloudflare tunnel..."
+  cloudflared tunnel run muj-tunel > tunnel.log 2>&1 &
+  TUNNEL_PID=$!
 fi
 
-Připojíme se k relaci
+echo ""
+echo "✅ Systém běží:"
+echo "Backend:  http://localhost:8000"
+echo "Frontend: http://localhost:5173"
+echo ""
+echo "Logy:"
+echo "backend.log"
+echo "frontend.log"
+echo "tunnel.log"
+echo ""
 
-tmux attach-session -t $SESSION
+wait

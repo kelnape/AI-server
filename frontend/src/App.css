@@ -1,42 +1,124 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+* {
+  font-family: 'Outfit', sans-serif !important;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.font-mono, code, pre {
+  font-family: 'Space Mono', monospace !important;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.app-root { font-size: 15px; }
+.app-root .text-sm { font-size: 14px !important; }
+.app-root .text-xs { font-size: 12px !important; }
+
+button { 
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; 
+}
+button:hover:not(:disabled) {
+  transform: translateY(-2px) !important;
+}
+button:active:not(:disabled) { 
+  transform: translateY(0px) scale(0.98) !important; 
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.animate-in { 
+  animation: fadeSlideIn 0.5s ease-out forwards; 
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.card {
-  padding: 2em;
+.msg-ai {
+  background: var(--bg-msg-ai) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
+}
+.msg-usr {
+  background: var(--bg-msg-usr) !important;
+  border-color: var(--border-accent) !important;
+  box-shadow: 0 20px 25px -5px rgb(59 130 246 / 0.1), 0 8px 10px -6px rgb(59 130 246 / 0.1) !important;
 }
 
-.read-the-docs {
-  color: #888;
+/* Solidní nepřůhledné karty s hover efektem */
+.bg-item, [class*="bg-[var(--bg-item)]"] {
+  background-color: var(--bg-item) !important;
+}
+
+.theme-card-bg {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.theme-card-bg:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
+}
+
+@keyframes bounce { 
+  0%,80%,100%{transform:translateY(0)} 
+  40%{transform:translateY(-6px)} 
+}
+
+.custom-scrollbar::-webkit-scrollbar{
+  width:6px;
+  height:6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track{
+  background:var(--bg-hover);
+  border-radius:10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb{
+  background:rgba(59,130,246,0.4);
+  border-radius:10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover{
+  background:rgba(59,130,246,0.6);
+}
+
+/* DARK THEME - Modern Slate Colors */
+:root {
+  --bg-page:    #0f172a;
+  --bg-card:    #1e293b;
+  --bg-card-2:  #334155;
+  --bg-toolbar: #1e293b;
+  --bg-input:   #1e293b;
+  --bg-hover:   #334155;
+  --bg-item:    #1e293b;
+  --bg-msg-ai:  #1e293b;
+  --bg-msg-usr: #1e3a5f;
+  --border:     #334155;
+  --border-accent: rgba(59,130,246,0.35);
+  --text-primary:   #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted:     #94a3b8;
+  --text-code:      #a78bfa;
+  --accent: #3b82f6;
+}
+
+/* LIGHT THEME - Clean Slate Colors */
+:root[data-theme="light"] {
+  --bg-page:    #f1f5f9;
+  --bg-card:    #ffffff;
+  --bg-card-2:  #f8fafc;
+  --bg-toolbar: #f1f5f9;
+  --bg-input:   #ffffff;
+  --bg-hover:   #f1f5f9;
+  --bg-item:    #f8fafc;
+  --bg-msg-ai:  #f8fafc;
+  --bg-msg-usr: #dbeafe;
+  --border:     #e2e8f0;
+  --border-accent: rgba(59,130,246,0.30);
+  --text-primary:   #0f172a;
+  --text-secondary: #1e293b;
+  --text-muted:     #64748b;
+  --text-code:      #6366f1;
+  --accent: #3b82f6;
+}
+
+/* Role badge hover effect */
+.role-badge {
+  transition: all 0.2s ease !important;
+}
+.role-badge:hover {
+  transform: scale(1.05) !important;
 }
