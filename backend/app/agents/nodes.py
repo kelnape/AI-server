@@ -111,18 +111,16 @@ async def manager_node(state: dict):
             return {"messages": [AIMessage(content=f"→ {direct_agent}", name="MANAŽER")], "route": direct_agent}
             
         user_msg = state["messages"][-1].content.lower()
-        # CHYTRÝ FILTR: Je to opravdu DIAdem?
         is_diadem = "diadem" in user_msg or "vbs" in user_msg
         
-        project_specs = state.get("project_specs", {})
-        # Vnutíme DIAdem cestu jen tehdy, když to uživatel skutečně zmínil v textu!
-        if project_specs.get("project_type") == "diadem_vbs" and is_diadem:
-            return {"messages": [AIMessage(content="Deleguji na Specialistu pro DIAdem", name="MANAŽER")], "route": "Specialista"}
+        # 🚀 TVRDÁ POJISTKA: Jakmile vidí DIAdem/VBS, okamžitě posílá Specialistovi.
+        # Už se vůbec neptá LLM Manažera, aby nezačal psát kód sám!
+        if is_diadem:
+            return {"messages": [AIMessage(content="Detekován DIAdem -> deleguji na Specialistu", name="MANAŽER")], "route": "Specialista"}
             
         relevant_memory = search_memory(user_msg, k=3)
         memory_context = f"\n\n### PAMĚŤ:\n{relevant_memory}\n" if relevant_memory else ""
 
-        # Vyčištěno slovo DIAdem z obecných instrukcí
         instr = f"Jsi MANAŽER. Deleguj práci. Odpověz JEDNÍM klíčovým slovem.\n{memory_context}\n1. Web/Analýza/Znalosti -> SPECIALISTA\n2. Kód/Architektura -> VYVOJAR\n3. Testy/Audit -> QA\n4. Systém/Server -> SYSADMIN\n5. Plán -> PLANNER"
         
         response = await invoke_and_log(state, "MANAŽER", instr)
