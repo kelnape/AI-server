@@ -50,7 +50,7 @@ workflow.add_conditional_edges(
 workflow.add_edge("Planner", "Vyvojar")
 workflow.add_edge("SysAdmin", "Finalizer")
 workflow.add_edge("Specialista", "Vyvojar")
-workflow.add_edge("Excel", "Vyvojar") # Excel Expert předává návrh Vývojáři k zapsání kódu
+workflow.add_edge("Excel", "QA")
 workflow.add_edge("Vyvojar", "QA")
 
 def qa_router(s):
