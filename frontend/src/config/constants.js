@@ -1,6 +1,6 @@
 import { 
   User, ListChecks, Wrench, Code, ShieldCheck, 
-  Terminal, Brain, CheckCircle 
+  Terminal, Brain, CheckCircle, FileSpreadsheet
 } from 'lucide-react';
 
 export const LANG_LABELS = { python: 'Python', bash: 'Bash/Shell', html: 'HTML', css: 'CSS', javascript: 'JavaScript', json: 'JSON', vbs: 'VBScript' }
@@ -17,6 +17,7 @@ export const AGENTS = [
   { id: 'SYSADMIN', label: 'SysAdmin', icon: Terminal },
   { id: 'REFLEKTOR', label: 'Analytik', icon: Brain },
   { id: 'FINALIZER', label: 'Finalizér', icon: CheckCircle },
+  { id: 'EXCEL', label: 'Excel Expert', icon: FileSpreadsheet },
 ];
 
 export const AGENT_COLORS = {
@@ -28,6 +29,7 @@ export const AGENT_COLORS = {
   'SYSADMIN': 'text-cyan-400',
   'REFLEKTOR': 'text-indigo-400',
   'FINALIZER': 'text-emerald-400',
+  'EXCEL': 'text-green-500', // Excel je zelený!
 };
 
 export const AGENT_COLORS_HEX = {
@@ -39,4 +41,5 @@ export const AGENT_COLORS_HEX = {
   'SYSADMIN': '#22d3ee',
   'REFLEKTOR': '#818cf8',
   'FINALIZER': '#34d399',
+  'EXCEL': '#22c55e',
 };

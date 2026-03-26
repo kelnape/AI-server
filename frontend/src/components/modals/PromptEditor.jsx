@@ -11,7 +11,8 @@ const AGENT_LIST = [
   {id:"QA", label:"QA Inženýr (Testy & Audit)"},
   {id:"SYSADMIN", label:"SysAdmin (Linux & Server)"},
   {id:"ANALYTIK", label:"Analytik (Reflexe)"},
-  {id:"FINALIZÉR", label:"Finalizér"}
+  {id:"FINALIZÉR", label:"Finalizér"},
+  {id:"EXCEL", label:"Excel Expert (Data & VBA)"},
 ];
 
 export const PromptEditor = ({ isOpen, onClose }) => {

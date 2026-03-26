@@ -5,7 +5,8 @@ from app.agents.state import AgentState
 from app.agents.nodes import (
     manazer_node, planner_node, sysadmin_node, 
     specialist_node, developer_node, qa_node, 
-    reflektor_node, next_step_node, finalizer_node
+    reflektor_node, next_step_node, finalizer_node,
+    excel_node  # 1. PŘIDÁNO: Import nového uzlu
 )
 
 workflow = StateGraph(AgentState)
@@ -19,6 +20,7 @@ workflow.add_node("QA", qa_node)
 workflow.add_node("Reflektor", reflektor_node)
 workflow.add_node("Nextstep", next_step_node)
 workflow.add_node("Finalizer", finalizer_node)
+workflow.add_node("Excel", excel_node) # 2. PŘIDÁNO: Zaregistrování uzlu do grafu
 
 workflow.set_entry_point("Manažer")
 
@@ -39,13 +41,16 @@ workflow.add_conditional_edges(
         "QA": "QA",
         "SysAdmin": "SysAdmin",
         "Reflektor": "Reflektor",
+        "Excel": "Excel", # 3. PŘIDÁNO: Výhybka od Manažera k Excel Expertovi
         "Finalizer": "Finalizer"
     }
 )
 
+# 4. PŘIDÁNO: Definice cest (Kdo komu předává práci)
 workflow.add_edge("Planner", "Vyvojar")
 workflow.add_edge("SysAdmin", "Finalizer")
 workflow.add_edge("Specialista", "Vyvojar")
+workflow.add_edge("Excel", "Vyvojar") # Excel Expert předává návrh Vývojáři k zapsání kódu
 workflow.add_edge("Vyvojar", "QA")
 
 def qa_router(s):

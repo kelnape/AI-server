@@ -104,24 +104,28 @@ async def invoke_and_log(state: dict, role_name: str, role_desc: str):
 # JEDNOTLIVÍ AGENTI
 # =============================================================================
 
-async def manager_node(state: dict):
+async def manazer_node(state: dict):
     try:
         direct_agent = state.get("direct_agent")
         if direct_agent:
             return {"messages": [AIMessage(content=f"→ {direct_agent}", name="MANAŽER")], "route": direct_agent}
             
         user_msg = state["messages"][-1].content.lower()
-        is_diadem = "diadem" in user_msg or "vbs" in user_msg
-        
+                
         # 🚀 TVRDÁ POJISTKA: Jakmile vidí DIAdem/VBS, okamžitě posílá Specialistovi.
         # Už se vůbec neptá LLM Manažera, aby nezačal psát kód sám!
+        is_diadem = "diadem" in user_msg or "vbs" in user_msg
         if is_diadem:
             return {"messages": [AIMessage(content="Detekován DIAdem -> deleguji na Specialistu", name="MANAŽER")], "route": "Specialista"}
+        
+        is_excel = any(word in user_msg for word in ["excel", "vba", "makro", "tabulk"])
+        if is_excel:
+            return {"messages": [AIMessage(content="Detekován Excel/VBA -> deleguji na Excel Experta", name="MANAŽER")], "route": "Excel"}
             
         relevant_memory = search_memory(user_msg, k=3)
         memory_context = f"\n\n### PAMĚŤ:\n{relevant_memory}\n" if relevant_memory else ""
 
-        instr = f"Jsi MANAŽER. Deleguj práci. Odpověz JEDNÍM klíčovým slovem.\n{memory_context}\n1. Web/Analýza/Znalosti -> SPECIALISTA\n2. Kód/Architektura -> VYVOJAR\n3. Testy/Audit -> QA\n4. Systém/Server -> SYSADMIN\n5. Plán -> PLANNER"
+        instr = f"Jsi MANAŽER. Deleguj práci. Odpověz JEDNÍM klíčovým slovem.\n{memory_context}\n1. Web/Analýza/Znalosti -> SPECIALISTA\n2. Kód/Architektura -> VYVOJAR\n3. Testy/Audit -> QA\n4. Systém/Server -> SYSADMIN\n5. Plán -> PLANNER\n6. Excel/VBA/Makra -> EXCEL"
         
         response = await invoke_and_log(state, "MANAŽER", instr)
         txt = _safe_text(response.content).upper()
@@ -133,6 +137,7 @@ async def manager_node(state: dict):
         elif any(w in txt for w in ["KODÉR", "VYVOJAR", "VÝVOJÁŘ", "PROGRAMUJ", "KÓD"]): route = "Vyvojar"
         elif any(w in txt for w in ["PLÁN", "PLANNER"]): route = "Planner"
         elif any(w in txt for w in ["ANALYTIK", "REFLEKTOR"]): route = "Reflektor"
+        elif any(w in txt for w in ["EXCEL", "VBA", "MAKRO", "TABULKA", "SEŠIT"]): route = "Excel"
 
         return {"messages": [AIMessage(content=txt, name="MANAŽER")], "route": route}
     except Exception as e:
@@ -195,6 +200,12 @@ async def reflector_node(state: dict):
 async def finalizer_node(state: dict):
     res = await invoke_and_log(state, "FINALIZÉR", "Shrň práci.")
     return {"messages": [AIMessage(content=_safe_text(res.content), name="FINALIZÉR")]}
+
+async def excel_node(state: dict):
+    # Předpokládám, že máš někde definovanou proměnnou agent_prompts a funkci invoke_and_log
+    instr = agent_prompts.get("EXCEL", "Jsi Excel a VBA Expert.")
+    response = await invoke_and_log(state, "EXCEL", instr)
+    return {"messages": [AIMessage(content=response.content, name="EXCEL")]}
 
 async def nextstep_node(state: dict):
     return {"current_step": state.get("current_step", -1) + 1}
