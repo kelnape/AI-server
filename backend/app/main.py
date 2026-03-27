@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import system, chat, nas, git, telemetry
 from app.security import setup_security
-from app.routers import nas
+
+import sqlite3
+from app.config import DB_PATH 
 
 app = FastAPI(title="Inženýrský Systém V9.2")
 
@@ -13,6 +15,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Bezpečnostní middleware
+setup_security(app)
+
+# =========================================================
+# 🚀 NAŠE NOVÁ FUNKCE MUSÍ BÝT ZDE (NAD VŠEMI ROUTERY)
+# =========================================================
+@app.get("/api/agent-stats")
+async def get_agent_telemetry():
+    """Vrátí statistiky agentů pro nový Cyberpunk Dashboard"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='telemetry'")
+        if not cur.fetchone():
+            conn.close()
+            return {"status": "ok", "data": []}
+
+        cur.execute("""
+            SELECT agent_id, 
+                   COUNT(id) as requests, 
+                   SUM(input_tokens + output_tokens) as tokens, 
+                   SUM(cost_usd) as cost 
+            FROM telemetry 
+            GROUP BY agent_id
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        
+        stats = []
+        for r in rows:
+            stats.append({
+                "name": r[0].upper(),
+                "requests": r[1],
+                "tokens": r[2] or 0,
+                "cost": round(r[3] or 0.0, 5)
+            })
+            
+        return {"status": "ok", "data": stats}
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e), "data": []}
 
 # Bezpečnostní middleware (API klíč, rate limiting, lockout)
 setup_security(app)

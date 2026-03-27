@@ -1,17 +1,15 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Play, RotateCcw, Check, Copy, Download, Square, X, Image as ImageIcon,
-  Paperclip, Brain, Terminal, MessageSquare, Code, Box, GitCommit, Package,
-  Trash2, PenLine, PlayCircle, Monitor
+  Play, Square, X, Image as ImageIcon, Paperclip, Brain, Terminal, 
+  Code, GitCommit, Trash2, PenLine, PlayCircle, Activity,
+  HardDrive, GitBranch, FileEdit, Settings
 } from 'lucide-react';
 
-// --- IMPORTY STYLŮ A HOOKŮ ---
 import './App.css'; 
 import { useAgentSystem } from './hooks/useAgentSystem';
 import { apiFetch } from './api/client';
 import { AGENTS, AGENT_COLORS_HEX, LANG_LABELS, LANG_COLORS } from './config/constants';
 
-// --- DRAWERY ---
 import { GitDrawer } from './components/drawers/GitDrawer';
 import { QueueDrawer } from './components/drawers/QueueDrawer';
 import { TelemetryDrawer } from './components/drawers/TelemetryDrawer';
@@ -23,25 +21,16 @@ import { TemplatesDrawer } from './components/drawers/TemplatesDrawer';
 import { SettingsDrawer } from './components/drawers/SettingsDrawer';
 import { ExportDrawer } from './components/drawers/ExportDrawer';
 import { CodeServerDrawer } from './components/drawers/CodeServerDrawer';
+import { NasDrawer } from './components/drawers/NasDrawer';
 
-// --- MODÁLY ---
 import { PromptEditor } from './components/modals/PromptEditor';
 import { IntakeModal } from './components/modals/IntakeModal';
 
-// --- NAŠE VYČLENĚNÉ KOMPONENTY ---
 import { CodeEditor } from './components/editor/CodeEditor';
-import { ProjectPlanner } from './components/tools/ProjectPlanner';
 import { SysAdminAlerts } from './components/tools/SysAdminAlerts';
-import { ActivityBar } from './components/layout/ActivityBar';
-import { ServerMetrics } from './components/layout/ServerMetrics';
 import { Header } from './components/layout/Header';
-import { AgentVisualizer } from './components/chat/AgentVisualizer';
 import { ChatMessage } from './components/chat/ChatMessage';
-import { ThinkingIndicator } from './components/chat/ThinkingIndicator';
 
-// =============================================================================
-// HLAVNÍ APLIKACE (Kostra)
-// =============================================================================
 export default function App() {
   const {
     input, setInput, isLibraryOpen, setIsLibraryOpen, isHistoryOpen, setIsHistoryOpen, isGitOpen, setIsGitOpen,
@@ -57,51 +46,345 @@ export default function App() {
     handleModelSelect, handleStop, handleCopy, executeTask, handleZipExport, handleRun
   } = useAgentSystem();
 
-  // =========================================================================
-  // NOVÉ: CHYTRÝ FILTR PRO ODESÍLÁNÍ ZPRÁV
-  // =========================================================================
+  // === STAVY APLIKACE ===
+  const [agentStats, setAgentStats] = useState([]);
+  const [selectedMode, setSelectedMode] = useState('AUTO');
+  const [isNasOpen, setIsNasOpen] = useState(false); // Lokální stav pro NAS, kdyby chyběl v hooku
+
+  // === NAČÍTÁNÍ STATISTIK ===
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const response = await apiFetch('/api/agent-stats');
+        const json = await response.json();
+        if (json.status === 'ok') setAgentStats(json.data);
+      } catch (e) { console.error("Nelze načíst statistiky agentů", e); }
+    };
+    fetchStats();
+    const interval = setInterval(fetchStats, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // === ODESLÁNÍ ÚKOLU ===
   const handleTaskSubmit = (text) => {
     if (!text.trim()) return;
-    
     const lower = text.toLowerCase();
-    
-    // Pokud text obsahuje slova DIAdem nebo VBS, vyskočí formulář (IntakeModal)
+    const directAgentOverride = selectedMode === 'AUTO' ? null : selectedMode;
+
     if (lower.includes('diadem') || lower.includes('vbs')) {
       setPendingMessage(text);
       setIntakeOpen(true);
     } else {
-      // Pokud to DIAdem NENÍ, nasimulujeme kliknutí na "Přeskočit" a pošleme to rovnou AI!
-      executeTask(text, {});
+      executeTask(text, { direct_agent: directAgentOverride });
     }
-    
-    setInput(""); // Vyčistíme vstupní řádek
+    setInput("");
+  };
+
+  // === POMOCNÁ KOMPONENTA PRO NOVOU KARTU AGENTA ===
+  const AgentStatCard = ({ agentId, label }) => {
+    const stat = agentStats.find(s => s.name === agentId) || { requests: 0, tokens: 0, cost: 0, errors: 0 };
+    const isActive = activeAgent === agentId;
+    const sr = stat.requests > 0 ? "100%" : "---";
+
+    return (
+      <div className={`mb-4 rounded-md border p-4 transition-all duration-300 ${isActive ? 'bg-[#111827]/80 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 'bg-[#0a0f18] border-gray-800/80'}`}>
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-blue-500 animate-pulse' : 'bg-gray-500'}`}></div>
+            <span className={`text-sm font-bold tracking-wide ${isActive ? 'text-blue-400' : 'text-emerald-500'}`}>
+              {label}
+            </span>
+          </div>
+          <span className="bg-white/5 border border-white/10 text-gray-400 px-2 py-0.5 rounded text-[9px] uppercase tracking-widest">
+            {isActive ? 'Working' : 'Ready'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-y-3 gap-x-6 text-[11px]">
+          <div className="flex flex-col gap-3">
+            <div className="flex justify-between items-center"><span className="text-gray-500">SR:</span><span className="text-emerald-400 font-medium">{sr}</span></div>
+            <div className="flex justify-between items-center"><span className="text-gray-500">Requests:</span><span className="text-gray-300 font-medium">{stat.requests}</span></div>
+            <div className="flex justify-between items-center"><span className="text-gray-500">Cost:</span><span className="text-gray-300 font-medium">${stat.cost.toFixed(4)}</span></div>
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="flex justify-between items-center"><span className="text-gray-500">Tokens:</span><span className="text-gray-300 font-medium">{stat.tokens.toLocaleString()}</span></div>
+            <div className="flex justify-between items-center"><span className="text-gray-500">Latency:</span><span className="text-gray-300 font-medium">--- ms</span></div>
+            <div className="flex justify-between items-center"><span className="text-gray-500">Errors:</span><span className="text-gray-300 font-medium">{stat.errors || 0}</span></div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className="app-root font-sans selection:bg-blue-500/30 flex flex-col"
-         data-theme={isDark ? 'dark' : 'light'}
-         style={{ backgroundColor: 'var(--bg-page)', color: 'var(--text-primary)', height: '100vh', overflow: 'hidden', position: 'fixed', inset: 0 }}>
+    <div className="font-mono bg-[#050505] text-gray-300 h-screen w-screen overflow-hidden flex flex-col selection:bg-blue-900/50">
       
-      <div className="app-gradient fixed inset-0 pointer-events-none"/>
+      {/* HEADER S TOOLBAREM */}
+      <header className="h-10 border-b border-gray-800 bg-[#0a0a0a] flex items-center justify-between px-4 shrink-0">
+        <div className="flex items-center gap-3">
+          <Terminal size={14} className="text-blue-500" />
+          <span className="text-xs font-bold tracking-widest text-gray-200">KELNAPE V0.5.0</span>
+          <span className="text-[10px] text-gray-600 border-l border-gray-800 pl-3 ml-2">SYSTEM OPERATIONAL</span>
+        </div>
 
-      {/* HEADER */}
-      <Header
-        activeModel={activeModel} handleModelSelect={handleModelSelect}
-        setIsPromptEditorOpen={setIsPromptEditorOpen} setTemplatesOpen={setTemplatesOpen} setWorkflowOpen={setWorkflowOpen}
-        setCodeServerOpen={setCodeServerOpen} setIsTelemetryOpen={setIsTelemetryOpen} setIsQueueOpen={setIsQueueOpen}
-        setIsMemoryOpen={setIsMemoryOpen} memoryCount={memoryCount} setIsHistoryOpen={setIsHistoryOpen} setIsLibraryOpen={setIsLibraryOpen}
-        setSettingsOpen={setSettingsOpen} setExportOpen={setExportOpen} handleLearn={handleLearn} clearSession={clearSession}
-        isDark={isDark} setIsDark={setIsDark}
-      />
+        {/* --- COMMAND BAR (NAS, GIT, PROMPTY) --- */}
+        <div className="flex-1 flex items-center justify-center gap-2">
+          <button 
+            onClick={() => setIsNasOpen(true)} 
+            className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold tracking-widest text-gray-500 hover:text-cyan-400 hover:bg-cyan-400/10 border border-transparent hover:border-cyan-400/30 transition-all rounded-sm"
+          >
+            <HardDrive size={12} /> NAS
+          </button>
+          
+          <button 
+            onClick={() => setIsGitOpen(true)} 
+            className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold tracking-widest text-gray-500 hover:text-orange-400 hover:bg-orange-400/10 border border-transparent hover:border-orange-400/30 transition-all rounded-sm"
+          >
+            <GitBranch size={12} /> GIT
+          </button>
 
-      <ServerMetrics/>
-      <SysAdminAlerts alerts={sysAlerts} onResolve={executeTask}/>
+          <button 
+            onClick={() => setIsPromptEditorOpen(true)} 
+            className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold tracking-widest text-gray-500 hover:text-fuchsia-400 hover:bg-fuchsia-400/10 border border-transparent hover:border-fuchsia-400/30 transition-all rounded-sm"
+          >
+            <FileEdit size={12} /> PROMPTY
+          </button>
+        </div>
 
-      <ActivityBar isProcessing={isProcessing} activeAgent={activeAgent} liveWorkspace={liveWorkspace} projectPlan={projectPlan} currentPlanStep={currentPlanStep}/>
+        <div className="flex items-center gap-4 text-[10px]">
+          <span className="text-emerald-500 flex items-center gap-1"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"/> 0/1 agents active</span>
+          <button onClick={() => setSettingsOpen(true)} className="hover:text-white transition-colors flex items-center gap-1.5">
+            <Settings size={12} /> CONFIG
+          </button>
+        </div>
+      </header>
 
-      {/* DRAWERY A MODÁLY */}
+      {/* HLAVNÍ MŘÍŽKA */}
+      <main className="flex-1 flex overflow-hidden">
+        
+        {/* LEVÝ PANEL: WORKSPACE (Chat & Kód) */}
+        <div className="flex-1 flex flex-col border-r border-gray-800 min-w-0">
+          
+          {/* HLAVIČKA WORKSPACE */}
+          <div className="h-8 bg-[#0a0a0a] border-b border-gray-800 flex items-center px-4 shrink-0">
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+              <Activity size={12}/> PIPELINE / WORKSPACE
+            </span>
+          </div>
+
+          {/* VÝPIS - Rozděleno na Půl (Nahoře Kód, Dole Chat) */}
+          <div className="flex-1 flex flex-col min-h-0 bg-[#080808]">
+            
+            {/* HORNÍ ČÁST: EDITOR / LOG (Cyberpunk Upgrade) */}
+            <div className="flex-1 border-b border-gray-800 relative flex flex-col min-h-0 bg-[#020202]">
+              
+              {/* Ovladač v pravém horním rohu pro přepínání pohledů */}
+              <div className="absolute top-0 right-0 z-20 flex text-[9px] font-bold uppercase tracking-widest border-b border-l border-gray-800 bg-[#050505]">
+                <button 
+                  onClick={() => setShowLiveLog(true)}
+                  className={`px-4 py-1.5 transition-all flex items-center gap-2 ${showLiveLog ? 'text-emerald-400 bg-emerald-400/10 shadow-[inset_0_-2px_0_rgba(16,185,129,1)]' : 'text-gray-600 hover:text-gray-400 hover:bg-white/5'}`}
+                >
+                  <Activity size={10} /> Trace Log
+                </button>
+                <button 
+                  onClick={() => setShowLiveLog(false)}
+                  className={`px-4 py-1.5 transition-all border-l border-gray-800 flex items-center gap-2 ${!showLiveLog ? 'text-blue-400 bg-blue-400/10 shadow-[inset_0_-2px_0_rgba(59,130,246,1)]' : 'text-gray-600 hover:text-gray-400 hover:bg-white/5'}`}
+                >
+                  <Code size={10} /> Source Code
+                </button>
+              </div>
+
+              {/* Samotný obsah horního okna */}
+              {liveWorkspace.length > 0 && showLiveLog ? (
+                <div className="flex-1 overflow-y-auto p-4 pt-10 custom-scrollbar text-[11px] font-mono relative">
+                  
+                  {/* Jemný mřížkový vzor v pozadí pro "Engineering" feeling */}
+                  <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[linear-gradient(rgba(255,255,255,1)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,1)_1px,transparent_1px)] bg-[size:20px_20px]"></div>
+                  
+                  <div className="z-10 relative flex flex-col">
+                    {liveWorkspace.map((block, idx) => {
+                      const isLast = idx === liveWorkspace.length - 1;
+                      const agentHex = AGENT_COLORS_HEX[block.node.toUpperCase()] || '#3b82f6';
+                      
+                      return (
+                        <div key={idx} className="flex gap-4 min-h-[60px]">
+                          {/* Časová osa a Název Node */}
+                          <div className="flex flex-col items-center shrink-0 w-24 pt-1">
+                            <div 
+                              className="text-[9px] font-bold mb-2 border px-2 py-0.5 rounded shadow-[0_0_10px_rgba(0,0,0,0.5)] uppercase tracking-wider text-center w-full truncate"
+                              style={{ color: agentHex, borderColor: `${agentHex}40`, backgroundColor: `${agentHex}15` }}
+                            >
+                              {block.node}
+                            </div>
+                            {!isLast && <div className="w-px flex-1 bg-gray-800/80 my-1"></div>}
+                          </div>
+                          
+                          {/* Obsah (Myšlenky agenta) */}
+                          <div className={`flex-1 pb-6 ${!isLast ? 'border-b border-gray-800/30' : ''}`}>
+                            <div className="text-gray-300 whitespace-pre-wrap leading-relaxed bg-[#0a0a0a]/80 border border-gray-800/50 p-3 rounded-md shadow-[inset_0_0_15px_rgba(0,0,0,0.4)]">
+                              {block.content}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={liveEndRef}/>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 relative pt-8 bg-[#050505]">
+                  <div className="absolute inset-0 top-8">
+                    <CodeEditor code={code} lang={codeLang} isEditing={isEditing} onChange={setCode}/>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* DOLNÍ ČÁST: CHAT (Konzole - Hacker Style) */}
+            <div className="h-[45%] bg-[#030303] p-4 overflow-y-auto custom-scrollbar flex flex-col gap-1 text-[12px] font-mono relative" ref={chatContainerRef}>
+              
+              <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] z-10 opacity-20"></div>
+
+              {chatMessages.length === 0 && (
+                <div className="text-emerald-700/60 flex flex-col items-center justify-center h-full animate-pulse">
+                  <Terminal size={32} className="mb-3"/>
+                  <span>[ INIT SEQUENCE COMPLETED ]</span>
+                  <span>AWAITING DIRECTIVES...</span>
+                </div>
+              )}
+
+              <div className="z-20 flex flex-col gap-1">
+                {chatMessages.map((msg, idx) => {
+                  const isUser = msg.role === 'user';
+                  const agentName = msg.agent ? msg.agent.toUpperCase() : 'SYSTEM';
+                  const agentHex = AGENT_COLORS_HEX[agentName] || '#3b82f6';
+
+                  return (
+                    <div key={idx} className="flex gap-3 mb-2 leading-relaxed">
+                      <div className="shrink-0 pt-0.5 select-none">
+                        {isUser ? (
+                          <span className="text-emerald-500 font-bold">kelnape@admin:~$</span>
+                        ) : (
+                          <span style={{ color: agentHex }} className="font-bold">[{agentName}]&gt;</span>
+                        )}
+                      </div>
+                      <div className={`flex-1 whitespace-pre-wrap ${isUser ? 'text-gray-300' : 'text-gray-400'}`}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {isProcessing && (
+                  <div className="flex gap-3 mb-2 leading-relaxed text-blue-400">
+                    <div className="shrink-0 pt-0.5 font-bold">[SYSTEM]&gt;</div>
+                    <div className="flex-1 flex items-center gap-2">
+                      Executing pipeline... 
+                      <div className="w-1.5 h-3 bg-blue-400 animate-pulse"/>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef}/>
+              </div>
+            </div>
+          </div> 
+
+          {/* INPUT COMMAND LINE (Spodní lišta Cyberpunk) */}
+          <div className="shrink-0 p-4 bg-[#0a0f18] border-t border-gray-800/80">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mr-2">
+                Select Mode:
+              </span>
+              
+              <button 
+                onClick={() => setSelectedMode('AUTO')}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-[10px] font-bold tracking-wider transition-all ${
+                  selectedMode === 'AUTO' 
+                    ? 'bg-indigo-600/15 border border-indigo-500/50 text-indigo-300 shadow-[0_0_10px_rgba(79,70,229,0.15)]' 
+                    : 'bg-[#050505] border border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-300'
+                }`}
+              >
+                🤖 AUTO (Manager)
+              </button>
+
+              {[
+                { label: 'SysAdmin', id: 'SysAdmin' },
+                { label: 'Specialist', id: 'Specialista' },
+                { label: 'Auditor', id: 'QA' },
+                { label: 'Coder', id: 'Vyvojar' },
+                { label: 'Excel', id: 'Excel' }
+              ].map((mode) => (
+                <button 
+                  key={mode.id} 
+                  onClick={() => setSelectedMode(mode.id)}
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-[10px] font-bold tracking-wider transition-all ${
+                    selectedMode === mode.id
+                      ? 'bg-emerald-600/15 border border-emerald-500/50 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.15)]'
+                      : 'bg-[#050505] border border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-300'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3 items-stretch h-11">
+              <input 
+                className="flex-1 bg-[#050505] border border-gray-800 rounded-md px-4 text-[13px] text-gray-200 focus:outline-none focus:border-indigo-500/50 focus:shadow-[0_0_10px_rgba(79,70,229,0.1)] placeholder-gray-700 font-mono transition-all"
+                placeholder={isProcessing ? "Executing task pipeline..." : "Enter task description..."}
+                value={input} 
+                onChange={e => setInput(e.target.value)} 
+                onKeyDown={e => e.key === 'Enter' && !isProcessing && handleTaskSubmit(input)} 
+                disabled={isProcessing}
+              />
+              <button 
+                onClick={() => handleTaskSubmit(input)}
+                disabled={isProcessing || !input.trim()}
+                className={`px-6 rounded-md text-[11px] font-bold uppercase tracking-widest border transition-all flex items-center gap-2 justify-center min-w-[120px] ${
+                  isProcessing 
+                    ? 'bg-[#050505] border-gray-800 text-gray-600' 
+                    : input.trim() 
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50 hover:shadow-[0_0_15px_rgba(16,185,129,0.15)]' 
+                      : 'bg-[#050505] border-gray-800 text-gray-600'
+                }`}
+              >
+                {isProcessing ? 'Working...' : <><Play size={12}/> Submit</>}
+              </button>
+              <button 
+                onClick={() => setInput('')}
+                className="px-5 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 hover:border-red-500/40"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+        </div> {/* KONEC LEVÉHO PANELU */}
+
+        {/* PRAVÝ PANEL: AGENT POOL */}
+        <div className="w-[300px] bg-[#050505] flex flex-col shrink-0">
+          <div className="h-8 bg-[#0a0a0a] border-b border-gray-800 flex items-center px-4 shrink-0 justify-between">
+            <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">AGENT POOL</span>
+            <span className="text-[9px] text-gray-600">{agentStats.length} loaded</span>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            <AgentStatCard agentId="MANAŽER" label="Manager" />
+            <AgentStatCard agentId="VYVOJAR" label="Coder" />
+            <AgentStatCard agentId="SPECIALISTA" label="Specialist" />
+            <AgentStatCard agentId="EXCEL" label="Excel Expert" />
+            <AgentStatCard agentId="QA" label="Auditor" />
+            <AgentStatCard agentId="SYSADMIN" label="SysAdmin" />
+          </div>
+        </div>
+
+      </main>
+
+      {/* Skryté Drawery a Modály - VČETNĚ NAS DRAWERU! */}
       <PromptEditor isOpen={isPromptEditorOpen} onClose={()=>setIsPromptEditorOpen(false)}/>
       <GitDrawer isOpen={isGitOpen} onClose={()=>setIsGitOpen(false)}/>
+      <NasDrawer isOpen={isNasOpen} onClose={()=>setIsNasOpen(false)}/> 
+      
       <QueueDrawer isOpen={isQueueOpen} onClose={()=>setIsQueueOpen(false)} onAddTask={handleAddToQueue}/>
       <TelemetryDrawer isOpen={isTelemetryOpen} onClose={()=>setIsTelemetryOpen(false)}/>
       <MemoryDrawer isOpen={isMemoryOpen} onClose={()=>setIsMemoryOpen(false)} memoryCount={memoryCount} onCountChange={setMemoryCount}/>
@@ -110,166 +393,7 @@ export default function App() {
       <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}/>
       <ExportDrawer isOpen={exportOpen} onClose={() => setExportOpen(false)} messages={chatMessages} code={code} codeLang={codeLang}/>
       <CodeServerDrawer isOpen={codeServerOpen} onClose={() => setCodeServerOpen(false)}/>
-
-      <IntakeModal isOpen={intakeOpen} initialMessage={pendingMessage}
-        onConfirm={(specs) => { setIntakeOpen(false); const msg = pendingMessage; setPendingMessage(''); executeTask(msg, specs); }}
-        onSkip={() => { setIntakeOpen(false); const msg = pendingMessage; setPendingMessage(''); executeTask(msg, {}); }}/>
-      
-      <LibraryDrawer isOpen={isLibraryOpen} onClose={()=>setIsLibraryOpen(false)} onIndex={()=>indexInputRef.current?.click()}/>
-      <HistoryDrawer isOpen={isHistoryOpen} onClose={()=>setIsHistoryOpen(false)} history={taskHistory}
-        onLoadTask={t=>{setCode(t.code||"");setCodeLang('python');addMessage({role:'system',content:`📂 Obnoven: ${t.query}`.substring(0,60)});}}/>
-      
-      <input type="file" ref={indexInputRef} className="hidden"/>
-      <input type="file" ref={imageInputRef} className="hidden" accept="image/*" multiple onChange={e=>handleFileSelect(e,'image')}/>
-      <input type="file" ref={fileInputRef} className="hidden" multiple accept=".pdf,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.md,.txt,.sh,.bash,.html,.css,.csv,.xml,.env,.toml,.ini,.cfg,.conf,.log" onChange={e=>handleFileSelect(e,'file')}/>
-
-      {/* MOBILE TABS */}
-      <div className="lg:hidden flex max-w-7xl mx-auto w-full px-4 pt-4 gap-2">
-        <button onClick={()=>setMobileTab('chat')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mobileTab==='chat'?'bg-blue-600/20 border border-blue-500/40 text-blue-300':'bg-[var(--bg-item)] border theme-border-cls theme-text-sm-cls'}`}>
-          <MessageSquare size={13}/> Chat
-        </button>
-        <button onClick={()=>setMobileTab('code')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mobileTab==='code'?'bg-blue-600/20 border border-blue-500/40 text-blue-300':'bg-[var(--bg-item)] border theme-border-cls theme-text-sm-cls'}`}>
-          <Code size={13}/> {LANG_LABELS[codeLang]||'Kód'}
-        </button>
-      </div>
-
-      {/* MAIN CONTENT */}
-      <main className="relative flex-1 min-h-0 w-full p-3 sm:p-4 lg:p-5 grid lg:grid-cols-[2fr_3fr] gap-4 lg:gap-5 overflow-hidden">
-        
-        {/* LÁVÝ PANEL - CHAT & AGENTI */}
-        <div className={`flex flex-col gap-2 overflow-hidden h-full ${mobileTab!=='chat'?'hidden lg:flex':'flex'}`}>
-          <div className="shrink-0"><AgentVisualizer activeAgent={activeAgent}/></div>
-          <ProjectPlanner plan={projectPlan} currentStep={currentPlanStep}/>
-
-          <div className="flex-1 min-h-0 theme-card border rounded-[2rem] overflow-hidden flex flex-col shadow-2xl" style={{borderColor:'var(--border)'}}>
-            <div ref={chatContainerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-3">
-              {chatMessages.map((msg, idx)=>( <ChatMessage key={`msg-${msg.id || 'x'}-${idx}`} msg={msg} onLearn={handleLearnMessage} onFeedback={handleFeedback} lastUserMsg={lastUserMsgRef.current}/> ))}
-              {isProcessing && activeAgent && <ThinkingIndicator activeAgent={activeAgent}/>}
-              <div ref={chatEndRef}/>
-            </div>
-          </div>
-
-          {/* SOUBORY */}
-          {attachments.length>0 && (
-            <div className="shrink-0 flex flex-wrap gap-2 px-1">
-              {attachments.map((file, idx)=>{
-                const isImg = file.type==='image';
-                const isPdf = file.mime==='application/pdf' || file.name.endsWith('.pdf');
-                const badgeColor = isImg ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : isPdf ? 'text-red-400 bg-red-500/10 border-red-500/20' : 'text-green-400 bg-green-500/10 border-green-500/20';
-                return (
-                  <div key={`file-${file.id || 'x'}-${idx}`} className="group theme-card-bg border theme-border-cls rounded-xl p-2 flex items-center gap-2">
-                    {isImg && file.preview ? <img src={file.preview} alt="" className="w-8 h-8 rounded-lg object-cover"/> : <div className={`w-8 h-8 rounded-lg flex items-center justify-center border text-[9px] font-black ${badgeColor}`}>FILE</div>}
-                    <div className="flex flex-col min-w-0"><span className="text-[10px] font-mono text-gray-300 max-w-[80px] truncate">{file.name}</span></div>
-                    <button onClick={()=>removeAttachment(file.id)} className="text-gray-700 hover:text-red-400 ml-1"><X size={11}/></button>
-                  </div>
-                );
-              })}
-              <button onClick={async () => {
-                  if (attachments.length === 0 || isProcessing) return;
-                  const filesToAnalyze = attachments.map(a=>({name:a.name,type:a.type,mime:a.mime,data:a.data}));
-                  addMessage({role:'system', content:`🔍 Spouštím rychlou analýzu...`});
-                  setIsProcessing(true); setActiveAgent('EXPERT');
-                  try {
-                    const r = await apiFetch('/api/analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({files: filesToAnalyze, question: input || 'Analyzuj.', model_id: activeModel}) });
-                    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf='';
-                    while(true) {
-                      const {done,value} = await reader.read(); if(done) break;
-                      const lines = (buf+dec.decode(value)).split('\n'); buf=lines.pop();
-                      for(const line of lines) { if(line.trim()) { try { const d = JSON.parse(line); if(d.type==='analysis_complete') addMessage({role:'ai', agent:'EXPERT', content:d.result}); } catch {} } }
-                    }
-                  } catch {} finally { setIsProcessing(false); setActiveAgent(null); }
-                }} className="flex items-center gap-1.5 px-3 py-2 bg-violet-500/10 text-violet-400 rounded-xl text-[10px] font-black"><Brain size={12}/> Analyzovat</button>
-            </div>
-          )}
-
-          {/* INPUT BAR */}
-          <div className="shrink-0 relative group">
-            <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 rounded-3xl blur opacity-0 group-hover:opacity-100 transition duration-500"/>
-            <div className="relative flex items-center theme-card border rounded-[1.5rem] shadow-2xl overflow-hidden" style={{borderColor:'var(--border)'}}>
-              <div className="absolute left-4 flex items-center gap-1">
-                <button onClick={()=>imageInputRef.current.click()} className="p-1.5 hover:bg-blue-500/10 rounded-lg"><ImageIcon size={16}/></button>
-                <button onClick={()=>fileInputRef.current.click()} className="p-1.5 hover:bg-blue-500/10 rounded-lg"><Paperclip size={16}/></button>
-              </div>
-              {/* OPRAVA: Zde voláme naši novou funkci handleTaskSubmit */}
-              <input className="w-full bg-transparent px-8 py-4 pl-24 pr-16 text-sm focus:outline-none" style={{color:'var(--text-primary)'}} placeholder={isProcessing?"Tým agentů pracuje...":"Zadejte úkol..."} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!isProcessing&&handleTaskSubmit(input)} disabled={isProcessing}/>
-              <div className="absolute right-3">
-                {/* OPRAVA: Zde voláme naši novou funkci handleTaskSubmit */}
-                {isProcessing ? <button onClick={handleStop} className="p-3 bg-red-600 text-white rounded-xl"><Square size={14}/></button> : <button onClick={()=>handleTaskSubmit(input)} className="p-3 bg-blue-600 text-white rounded-xl"><Play size={16}/></button>}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* PRAVÝ PANEL — EDITOR & PREVIEW */}
-        <div className={`flex flex-col theme-card border rounded-[2rem] overflow-hidden shadow-2xl h-full min-h-0 ${mobileTab!=='code'?'hidden lg:flex':'flex'}`} style={{borderColor:'var(--border)'}}>
-          <div className="px-5 py-3.5 theme-toolbar flex items-center justify-between border-b shrink-0" style={{borderColor:'var(--border)'}}>
-            
-            {/* OVLÁDÁNÍ POHLEDŮ */}
-            <div className="flex items-center gap-2.5">
-              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"/>
-              <span className="text-[10px] font-black tracking-[0.2em] theme-text-sm-cls uppercase">output_workspace</span>
-              <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-[var(--bg-item)] ${LANG_COLORS[codeLang]||'text-blue-400'}`}>{LANG_LABELS[codeLang]||codeLang}</span>
-              {(liveWorkspace.length > 0 || code) && (
-                <div className="flex bg-[var(--bg-item)] rounded-lg p-0.5 border theme-border-cls ml-2">
-                  <button onClick={() => setShowLiveLog(true)} className={`px-2.5 py-1 rounded-md text-[9px] font-black transition-all ${showLiveLog ? 'bg-blue-600/30 text-blue-300' : 'theme-text-xs-cls hover:text-gray-400'}`}>Log Agentů</button>
-                  <button onClick={() => setShowLiveLog(false)} className={`px-2.5 py-1 rounded-md text-[9px] font-black transition-all ${!showLiveLog ? 'bg-emerald-600/30 text-emerald-300' : 'theme-text-xs-cls hover:text-gray-400'}`}>Kód</button>
-                </div>
-              )}
-            </div>
-            
-            {/* TLAČÍTKA EDITORU */}
-            <div className="flex items-center gap-1.5">
-              <button onClick={()=>{ setIsEditing(e=>!e); setRunOutput(null); }} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black transition-all ${isEditing?'bg-amber-500/20 border-amber-500/30 text-amber-300':'bg-[var(--bg-item)] hover:bg-white/10 border-white/10 theme-text-sm-cls'}`}><PenLine size={13}/><span className="hidden xl:block">{isEditing ? 'Zobrazit' : 'Editovat'}</span></button>
-              {['python','bash','javascript','html'].includes(codeLang) && <button onClick={handleRun} disabled={isRunning} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black ${isRunning?'bg-green-500/10 text-green-500 cursor-wait':'bg-green-500/15 text-green-400'}`}>{isRunning?<div className="w-3 h-3 border-2 border-green-700 border-t-green-400 rounded-full animate-spin"/>:<PlayCircle size={13}/>}<span className="hidden xl:block">Spustit</span></button>}
-              <button onClick={()=>setIsGitOpen(true)} className="flex items-center gap-1.5 px-3 py-2 bg-orange-500/10 text-orange-400 rounded-xl border border-orange-500/20 text-[10px] font-black"><GitCommit size={13}/><span className="hidden xl:block">Git</span></button>
-              <button onClick={handleCopy} className="p-2 bg-[var(--bg-item)] hover:bg-white/10 text-gray-400 rounded-xl">{isCopied?<Check size={14} className="text-green-400"/>:<Copy size={14}/>}</button>
-              <button onClick={()=>{ setCode(''); setCodeLang('python'); setRunOutput(null); setIsEditing(false); }} className="p-2 bg-[var(--bg-item)] hover:bg-red-500/20 text-gray-400 hover:text-red-400 rounded-xl"><Trash2 size={14}/></button>
-              <button onClick={()=>executeTask("Proveď re-audit aktuálního kódu.")} className="flex items-center gap-2 bg-blue-500/10 text-blue-400 px-4 py-2 rounded-xl border border-blue-500/20 text-[10px] font-black"><RotateCcw size={13}/> Re-Audit</button>
-            </div>
-          </div>
-
-          {/* VYKRESLENÍ: LOG vs KÓD vs PREVIEW */}
-          {liveWorkspace.length > 0 && showLiveLog && !showPreview ? (
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 relative"> 
-              <div className="px-4 py-2 flex items-center gap-3 shrink-0" style={{background:'rgba(59,130,246,0.05)', borderBottom:'1px solid var(--border)'}}>
-                <div className="flex items-center gap-2">{isProcessing ? <><div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"/><span className="text-[9px] font-black uppercase text-blue-400">Live log agentů</span></> : <><div className="w-2 h-2 rounded-full bg-emerald-500"/><span className="text-[9px] font-black uppercase text-emerald-400">Log dokončen</span></>}</div>
-                {!isProcessing && code && <button onClick={() => setShowLiveLog(false)} className="ml-auto text-[9px] font-black uppercase px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">→ Zobrazit Kód</button>}
-              </div>
-              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-                {liveWorkspace.map((block, idx) => {
-                  const agent = AGENTS.find(a => a.id === block.node?.toUpperCase());
-                  const hex = AGENT_COLORS_HEX[block.node?.toUpperCase()] || '#64748b';
-                  return (
-                    <div key={`log-${idx}-${block.node || 'node'}`} className="border-b" style={{borderColor:'var(--border)'}}>
-                      <div className="px-4 py-2 flex items-center gap-2.5 sticky top-0" style={{background:'var(--bg-toolbar)'}}><div className="w-2 h-2 rounded-full" style={{background: hex}}/><span className="text-[9px] font-black uppercase tracking-widest" style={{color: hex}}>{agent?.label || block.node}</span></div>
-                      <pre className="px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap" style={{background:'var(--bg-card)', color:'var(--text-secondary)'}}>{block.content}</pre>
-                    </div>
-                  );
-                })}
-                <div ref={liveEndRef}/>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-              <CodeEditor code={code} lang={codeLang} isEditing={isEditing} onChange={setCode}/>
-              {runOutput && (
-                <div className="shrink-0 border-t overflow-hidden" style={{borderColor:'var(--border)'}}>
-                  <div className="px-4 py-2 flex items-center justify-between" style={{background: runOutput.status==='ok' ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'}}>
-                    <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${runOutput.status==='ok'?'bg-green-500':'bg-red-500'}`}/><span className={`text-[10px] font-black uppercase tracking-widest ${runOutput.status==='ok'?'text-green-400':'text-red-400'}`}>{runOutput.status==='ok' ? '✓ Výstup' : '✗ Chyba'}</span></div>
-                    <button onClick={()=>setRunOutput(null)} className="p-1 text-gray-400"><X size={12}/></button>
-                  </div>
-                  <pre className="px-4 py-3 font-mono text-[12px] leading-relaxed overflow-auto custom-scrollbar max-h-48 whitespace-pre-wrap" style={{background: 'var(--bg-toolbar)', color: runOutput.status==='ok' ? 'var(--text-primary)' : '#f87171'}}>{runOutput.output}</pre>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="px-5 py-2.5 theme-toolbar border-t flex items-center justify-between text-[9px] font-mono shrink-0" style={{borderColor:'var(--border)', color:'var(--text-muted)'}}>
-            <div className="flex items-center gap-3"><span>UTF-8</span><span className={LANG_COLORS[codeLang]||'text-blue-400/50'}>{LANG_LABELS[codeLang]||codeLang}</span></div>
-            <div className="flex items-center gap-1"><Box size={9}/> <span>{code.split('\n').length} lines</span></div>
-          </div>
-        </div>
-      </main>
+      <IntakeModal isOpen={intakeOpen} initialMessage={pendingMessage} onConfirm={(specs) => { setIntakeOpen(false); const msg = pendingMessage; setPendingMessage(''); executeTask(msg, specs); }} onSkip={() => { setIntakeOpen(false); const msg = pendingMessage; setPendingMessage(''); executeTask(msg, {}); }}/>
     </div>
   );
 }
